@@ -1,0 +1,7 @@
+.git
+__pycache__
+*.bam
+*.cram
+*.fastq.gz
+*.vcf.gz
+*.g.vcf.gz

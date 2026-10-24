@@ -1,0 +1,3 @@
+sample	species	input_type	library	lane	r1	r2	bam	cram
+BELUGA_WGS01	Delphinapterus_leucas	fastq	LIB1	L001	/mnt/tank/scratch/plem/data/Bogdan/Minimal-SNP-Panels/data/full_wgs_20261022/Delphinapterus_leucas/SRR35396908/SRR35396908_1.fastq.gz	/mnt/tank/scratch/plem/data/Bogdan/Minimal-SNP-Panels/data/full_wgs_20261022/Delphinapterus_leucas/SRR35396908/SRR35396908_2.fastq.gz		
+BELUGA_WGS02	Delphinapterus_leucas	fastq	LIB1	L001	/mnt/tank/scratch/plem/data/Bogdan/Minimal-SNP-Panels/data/full_wgs_20261022/Delphinapterus_leucas/SRR35396907/SRR35396907_1.fastq.gz	/mnt/tank/scratch/plem/data/Bogdan/Minimal-SNP-Panels/data/full_wgs_20261022/Delphinapterus_leucas/SRR35396907/SRR35396907_2.fastq.gz		

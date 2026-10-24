@@ -1,0 +1,5 @@
+sample	species	input_type	library	lane	r1	r2	bam	cram
+BELUGA_001	Delphinapterus_leucas	fastq	LIB001	L001	/data/beluga/BELUGA_001_R1.fastq.gz	/data/beluga/BELUGA_001_R2.fastq.gz		
+BELUGA_001	Delphinapterus_leucas	fastq	LIB001	L002	/data/beluga/BELUGA_001_L002_R1.fastq.gz	/data/beluga/BELUGA_001_L002_R2.fastq.gz		
+BEAR_001	Ursus_maritimus	bam	NA	NA			/data/bear/BEAR_001.sorted.markdup.bam	
+BEAR_002	Ursus_maritimus	cram	NA	NA				/data/bear/BEAR_002.cram
