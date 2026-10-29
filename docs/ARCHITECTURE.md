@@ -1,127 +1,124 @@
-# Architecture
+# Целевая архитектура Minimal SNP Panels
 
-**Updated:** 20 October 2026. This document describes the target architecture; only the metadata catalogues are currently implemented in the repository.
+Статус: **архитектурная спецификация, не описание уже реализованного SNP-пайплайна**.
 
-## Scope and separation of concerns
-
-Two distinct workflows must remain separate:
-
-1. **Study-specific WGS workflow:** obtain or re-use variants from sequenced belugas and polar bears, analyze structure and establish labels.
-2. **Reusable SNP-panel workflow:** take a VCF/BCF and a separate `population_labels.tsv` and select/validate a minimal panel. The reusable module must not depend on PCA/ancestry software used to obtain labels.
-
-Each species has its own reference assembly, VCF/BCF, QC and population labels. Do **not** merge variants of both species into one VCF.
-
-## A. Study-specific WGS workflow
+## 1. Две независимые задачи
 
 ```text
-curated sample and run manifests
-            |
-            v
-public SRA / approved restricted WGS
-            |
-            v
-FASTQ / pre-existing BAM/CRAM or suitable VCF/BCF
-            |
-            v
-verify reference assembly, read/sample identity and checksums
-            |
-            v
-mapping -> BAM/CRAM + mapping/coverage/contamination QC
-            |
-            v
-variant calling + joint genotyping (per species)
-            |
-            v
-normalized VCF/BCF + sample- and variant-level QC
-            |
-            v
-structure-specific SNP filtering and LD pruning
-            |
-            v
-PCA + complementary ancestry / clustering analysis
-            |
-            v
-check outliers, duplicate animals, relatives, batch effects,
-cluster stability and concordance with published geography
-            |
-            v
-species-specific population_labels.tsv + label provenance
+            [Необязательная подготовка WGS]
+ FASTQ / BAM / CRAM + reference FASTA
+                  |
+                  v
+       WGS_GATK_simple (SLURM)
+                  |
+                  v
+          VCF / BCF по виду
+                  |
+                  |  либо готовый внешний VCF/BCF
+                  v
+                  +---------------------------+
+                                              |
+ population_labels.tsv -----------------------+----> SNP-panel pipeline
+                                              |        QC
+                                              |        population statistics
+                                              |        SNP selection + LD filtering
+                                              |        classification + nested CV
+                                              |        target-based panel choice
+                                              v
+                                      panels + metrics + report
 ```
 
-The sequencing workflow is implemented for SLURM. For an existing VCF/BCF, skip FASTQ processing **only** after verifying build, variants, samples, provenance and consistency with the intended cohort.
+Определение `population_labels.tsv` по PCA/кластеризации — **отдельный исследовательский процесс**. Основной модуль принимает готовые labels и не зависит от механизма их получения.
 
-## B. Reusable SNP-panel workflow
+Текущий этап добавляет **отдельную заглушку** `population_structure/`: она только записывает план анализа, не исполняет PCA/ADMIXTURE, не определяет группы и не создаёт `population_labels.tsv` из предположений.
 
-**Required inputs:** `VCF/BCF` and `population_labels.tsv` with matching sample IDs. Additional configuration specifies panel sizes, QC and validation settings. Grouping of BioSamples by independent animal is required where repeats/duplicates are known.
+## 2. Организация репозитория на переходный период
 
 ```text
-VCF/BCF + population_labels.tsv
-              |
-              v
-sample matching, genotype harmonization, dataset-level QC
-              |
-              v
-outer validation split (animal groups; stratified where feasible)
-       _______|________________________
-      |                                |
-      v                                v
-TRAIN only                         HELD-OUT TEST
-      |                                |
-allele frequencies / FST               |  untouched during
-SNP ranking / LD filtering             |  SNP selection, tuning
-candidate panel sizes                  |  and fitting
-inner tuning/validation                |
-classifier fitting                     |
-      |                                |
-      +---------- trained model -------+
-                       |
-                       v
-              held-out predictions
-                       |
-                       v
-         per-class metrics and confusion matrices
-                       |
-                       v
-       aggregate panel-size performance and SNP stability
-                       |
-                       v
-      final panel refit + independent evaluation if available
+Minimal-SNP-Panels/
+├── README.md                 # что делает весь проект и как выбрать вход
+├── AGENTS.md                 # правила разработки
+├── docs/
+│   ├── ARCHITECTURE.md       # этот документ
+│   └── data_contracts.md    # уточняемый контракт входов/выходов
+├── WGS_GATK_simple/         # СУЩЕСТВУЕТ; рефакторинг без ломки CLI
+│   ├── run.sh
+│   ├── config/
+│   ├── scripts/
+│   │   ├── model.py
+│   │   ├── workflow.py
+│   │   ├── pipeline.py
+│   │   └── stages/
+│   └── tests/
+├── population_structure/    # заглушка отдельного исследовательского анализа
+│   ├── prepare.py           # только формирование плана (без вычислений)
+│   └── README.md
+├── snp_panel/               # БУДУЩИЙ самостоятельный модуль
+│   ├── README.md
+│   ├── config/
+│   ├── src/
+│   └── tests/
+└── literature/              # обзор методов
 ```
 
-The diagram does **not** mean that the final deployed marker set is different in every use. During cross-validation a fresh set is selected within each training fold to estimate the full *selection procedure*. After choosing a size/hyperparameters, a final panel is refitted on the designated development set, documented, and tested on truly independent data when available.
+**Не создавать пустые файлы, каталоги и лишние классы только ради структуры**. `snp_panel/` показан как план и пока содержит только README; `population_structure/` — явно запрошенная заглушка, не интегрированная в WGS. Актуальный WGS-модуль — `WGS_GATK_simple/`. Прежний `WGS_Bash_GATK/` перенесён в архив за пределами репозитория.
 
-## Data currently available
+## 3. Контракт на границе модулей
 
-| Species | Source of current metadata | Samples | Selected runs | Critical caveat |
-|---|---|---:|---:|---|
-| Polar bear | `data/metadata/polar_bear/curated/` | 144 | 286 | Two BioSamples correspond to one reported animal; independent-animal grouping and other duplicate/kinship checks required |
-| Beluga | `data/metadata/beluga/curated/` | 106 | 106 | 8 neonates; variable estimated raw depth; `OTHER` assay type for 78 runs |
+### WGS выдаёт
 
-The 12 in-house Kara bears are not in this public cohort and need an access-controlled, provenance-checked integration step. The WGS catalogues do **not** contain FASTQ, mapped BAM, VCF or validated population labels.
+- по виду: `cohort.raw.vcf.gz` (или совместимый BCF) с генотипами образцов, на выбранной сборке референса;
+- индексы VCF/BCF и метаданные о сборке и образцах;
+- BAM, GVCF и QC для аудита, но **они не являются обязательным входом SNP-пайплайна**.
 
-## Sample/variant QC must be purpose-specific
+### SNP-пайплайн принимает
 
-- **Before structure inference:** review mapping coverage, sex/contamination, missingness, close relatedness and technical batches; then create a high-quality, mostly independent, LD-pruned autosomal SNP set.
-- **For panel design:** guard against SNP dropout, missing genotypes, batch artifacts, excessive linkage and unstable signals; select candidate markers only from the training partition during performance evaluation.
-- **Depth estimates:** NCBI/SRA `bases / genome_size` is pre-mapping raw-depth approximation, not mean usable autosomal depth; calculate coverage metrics from aligned reads before final cohort selection.
-- **Population labels:** geographic sampling location and publication group annotations are evidence for comparison, not automatic genetic truth. Record ambiguous assignments as such.
+- `variants`: один или несколько VCF/BCF с генотипами, согласованных по виду и сборке референса;
+- `population_labels.tsv`, минимальный формат:
 
-Do not impose precise QC cutoffs until the reference assemblies, depth distributions and empirical QC have been reviewed. Fix chosen cutoffs/configuration and report excluded samples and variants once established.
+```tsv
+sample	population
+sample_001	population_A
+sample_002	population_B
+sample_003	population_A
+```
 
-## Validation and leakage risks
+- настройки variant QC, параметров отбора/LD, размеров панелей, классификатора, схемы CV и выбранного порога качества.
 
-- All feature ranking, LD-aware panel selection, imputations fitted on the cohort and classifier tuning must use **training-only** data in each validation split.
-- Use grouped splits to keep repeated BioSamples, sequencing libraries and known same-animal records together. Assess other relatives and sites as potential dependence structures.
-- Balance evaluation across populations: report balanced accuracy, macro-F1, recall by group, confusion matrices and uncertainty. Record class counts per fold.
-- Where SNP-based labels were inferred from the **same individuals' genomes**, CV is not by itself proof of external population assignment: the outcome labels are data-derived. Document this circularity and use external assignments / held-out cohorts for stronger validation if possible.
-- Technical metadata (`bioproject`, sequencer, read depth, locality) are for QC and interpretation, **not genotype features** fed to the classifier.
+Валидация входа должна проверять уникальность имён, соответствие ID образцов, однозначную идентификацию SNP (`CHROM:POS:REF:ALT` после нормализации), совместимость сборки и отсутствие смешивания видов. Политика в отношении отсутствующих/лишних образцов и нескольких VCF должна быть явной.
 
-## Planned implementation modules (not yet present)
+### SNP-пайплайн выдаёт
 
-When code is added, retain a small, transparent layout: `scripts/` for Bash/Python processing, `slurm/` for job launchers, `config/` for explicit settings, and a top-level entry point (`run_pipeline.sh`) for the reusable SNP-panel workflow. Environment reproducibility (Conda lock/environment specification and Dockerfile) should be documented; cluster operation need not depend on privileged Docker/Singularity execution.
+```text
+results/<run_id>/
+├── qc/                      # сводки качества
+├── snp_statistics.tsv      # популяционные метрики
+├── ranked_snps.tsv         # ранжированный список
+├── candidate_panels/       # SNP каждого исследованного размера
+├── validation/             # метрики по фолдам, confusion matrices
+├── panel_performance.tsv   # качество в зависимости от числа SNP
+├── final_panel.tsv         # выбранная панель (если критерий достигнут)
+└── run_metadata.yaml       # настройки, версии, описание входов
+```
 
-Do not add empty directories or placeholder scripts merely to match this target layout. Build them together with tested runnable components.
+Имена выходов — **предлагаемый контракт**; перед реализацией зафиксировать тестами и README.
 
-## Required scientific outputs
+## 4. Методология валидируемого отбора
 
-For **each species**, ultimately deliver: reference/build and cohort manifest; QC summary; species-specific VCF/BCF; structure plots and `population_labels.tsv` with label provenance; ranked SNPs; candidate and final panel lists; held-out CV predictions and metrics; panel-size curve; comparison with a reproducible published panel or closest published SNP set; limitations and a short-paper-style report.
+1. Определить выборку и метки популяций, проверить размеры классов и репрезентативность.
+2. Разделить наблюдения на обучающие/тестовые части; для оценки «неизвестных» образцов использовать независимую внешнюю схему или outer CV.
+3. **Внутри training-fold:** вычислять зависящие от образцов QC/частоты/статистики, ранжировать SNP, фильтровать по LD, выбирать размер панели и настраивать классификатор.
+4. Оценивать качество на удерживаемой части, которая не участвовала в SNP selection; при выборе размера в ходе CV использовать nested CV или эквивалентную схему.
+5. Сравнивать размеры панели по заранее выбранной метрике (для несбалансированных групп в первую очередь balanced accuracy и macro-F1).
+6. Выбрать самый маленький **из проверенных** наборов, для которого предустановленный порог подтверждается принятой процедурой валидации. Если не подтверждается — явно сообщить об этом.
+7. После оценки обучить финальную схему отбора на доступной обучающей когорте и сохранить SNP, версии и отчёт с ограничениями.
+
+Если метки получены с помощью PCA/кластеризации этих же полногеномных SNP, оценка классификации проверяет воспроизведение назначенных кластеров. Внешняя биологическая валидация популяций требует независимых оснований/данных.
+
+## 5. Разделение нынешней и будущей работы
+
+**Сейчас:** упростить WGS-код без изменения внешнего интерфейса, научных команд, SLURM-графа и правил checkpoint/resume; сохранить тестовый baseline, описать этот контракт. Анализировать сохранённые SLURM-метрики и отдельно проверять безопасные изменения скорости.
+
+**Затем:** реализовать отдельный VCF/BCF → SNP-panel модуль с тестируемыми этапами и воспроизводимой nested CV.
+
+**Уже на текущем этапе после baseline:** измерить время, память и I/O по этапам, определить реальные узкие места и проверять оптимизации на сопоставимой нагрузке. Изменение биоинформатических команд или SLURM-графа — отдельное согласованное изменение поведения, а не часть эквивалентного рефакторинга.

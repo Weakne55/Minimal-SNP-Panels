@@ -1,0 +1,32 @@
+{
+  "fastq_untrimmed": {
+    "sha256": "d8863a894a69d756c1a1a296199aaf2a8096444a0d72677a5cfdd1dd69b081bb",
+    "task_count": 16,
+    "map_count": 2
+  },
+  "fastq_trimmed": {
+    "sha256": "c4b7d263258411bf05d4f3e5a1c4032748e046861a64f5ae32007ade6e3cd975",
+    "task_count": 18,
+    "map_count": 2
+  },
+  "fastq_multilane": {
+    "sha256": "2ac466314769c850dcd9735c6c552d7031fc95d5c3e0c979d44a13ee5e7d4735",
+    "task_count": 20,
+    "map_count": 2
+  },
+  "bam": {
+    "sha256": "2ddd24bd83d6f3003747a4236c04315f9d87b7add7c0321889aae331aa2e5de3",
+    "task_count": 14,
+    "map_count": 2
+  },
+  "cram": {
+    "sha256": "86742cc721492cecd420287c305411d271c92077f3ba9489f8a673f389b59006",
+    "task_count": 14,
+    "map_count": 2
+  },
+  "beluga_bear_autosomes": {
+    "sha256": "83e5c1cdeb90f65daa293c31d51f43077d1bffec7b5e5a5c4d0297d18a6fdae4",
+    "task_count": 180,
+    "map_count": 57
+  }
+}

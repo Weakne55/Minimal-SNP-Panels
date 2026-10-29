@@ -1,0 +1,40 @@
+# НАСТРОЙКИ ЗАПУСКА. Сначала измените пути и названия аутосом.
+# Пути относительно проекта допустимы для samples и workdir.
+
+samples: config/samples.tsv
+workdir: /PATH/TO/WORKDIR/wgs_gatk_run   # папка результатов, НЕ внутри репозитория
+
+references:
+  Delphinapterus_leucas:
+    fasta: /PATH/TO/REFERENCES/beluga.fa
+    contigs: [CONTIG1, CONTIG2]  # замените на реальные аутосомы из beluga.fa.fai
+  Ursus_maritimus:
+    fasta: /PATH/TO/REFERENCES/polar_bear.fa
+    contigs: [CONTIG1, CONTIG2]  # замените на реальные аутосомы из polar_bear.fa.fai
+
+# Необязательные настройки: закомментированное = значение по умолчанию.
+# Уберите # только у тех опций, которые собираетесь менять.
+
+# preprocessing:
+#   trim_fastq: true           # по умолчанию false
+
+# duplicate_marking:
+#   optical_distance: 0
+
+slurm:
+  max_array_parallel: 4        # максимум одновременных элементов массива
+  # partition: main
+  # account: users
+  # qos: normal
+  # resources:
+  #   align: {cpus: 8, mem_mb: 20000, hours: 16}
+  #   haplotypecaller: {cpus: 4, mem_mb: 24000, hours: 24}
+  #   genomicsdb: {cpus: 2, mem_mb: 32000, hours: 18}
+
+# gatk:
+#   hc_threads: 4
+#   hc_heap_gb: 16
+#   db_heap_gb: 24
+#   genotype_heap_gb: 12
+#   db_batch_size: 50
+#   db_readers: 1

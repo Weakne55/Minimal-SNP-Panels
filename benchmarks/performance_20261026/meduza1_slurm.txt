@@ -1,0 +1,17 @@
+NodeName=meduza-1 Arch=x86_64 CoresPerSocket=24
+   CPUAlloc=74 CPUTot=96 CPULoad=90.40
+   AvailableFeatures=(null)
+   ActiveFeatures=(null)
+   Gres=(null)
+   NodeAddr=192.168.16.144 NodeHostName=meduza-1 Version=21.08.5
+   OS=Linux 5.15.0-187-generic #197-Ubuntu SMP Fri Jul 17 19:17:01 UTC 2026
+   RealMemory=1024000 AllocMem=565248 FreeMem=429628 Sockets=2 Boards=1
+   State=MIXED ThreadsPerCore=2 TmpDisk=0 Weight=1 Owner=N/A MCS_label=N/A
+   Partitions=main
+   BootTime=2026-08-20T21:58:04 SlurmdStartTime=2026-10-16T21:45:59
+   LastBusyTime=2026-10-26T18:53:53
+   CfgTRES=cpu=96,mem=1000G,billing=96
+   AllocTRES=cpu=74,mem=552G
+   CapWatts=n/a
+   CurrentWatts=0 AveWatts=0
+   ExtSensorsJoules=n/s ExtSensorsWatts=0 ExtSensorsTemp=n/s

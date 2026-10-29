@@ -44,3 +44,18 @@ __pycache__/
 *.part
 *.corrupt_*.fastq.gz
 
+
+# Local data and run configuration
+/data/
+/config/
+/results/
+/WGS_GATK_simple/config/config.yaml
+/WGS_GATK_simple/config/samples.tsv
+/WGS_GATK_simple/config/*.bak
+
+# Archives and Python cache
+/*.zip
+/*.tar.gz
+__pycache__/
+*.pyc
+.pytest_cache/

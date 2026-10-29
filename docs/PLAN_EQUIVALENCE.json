@@ -1,0 +1,47 @@
+{
+  "scenarios": [
+    {
+      "case": "fastq_untrimmed",
+      "identical": true,
+      "tasks": 16,
+      "maps": 2
+    },
+    {
+      "case": "fastq_trimmed",
+      "identical": true,
+      "tasks": 18,
+      "maps": 2
+    },
+    {
+      "case": "fastq_multilane",
+      "identical": true,
+      "tasks": 20,
+      "maps": 2
+    },
+    {
+      "case": "bam",
+      "identical": true,
+      "tasks": 14,
+      "maps": 2
+    },
+    {
+      "case": "cram",
+      "identical": true,
+      "tasks": 14,
+      "maps": 2
+    },
+    {
+      "case": "beluga_bear_autosomes",
+      "identical": true,
+      "tasks": 180,
+      "maps": 57
+    }
+  ],
+  "source_archive": "WGS_GATK_simple_sources.tar.gz (uploaded 2026-10-29)",
+  "validation": "Byte-for-byte equal serialized task dictionaries (including commands, dependencies, input/output paths and signatures) and GenomicsDB sample-map contents using the same rooted synthetic fixtures",
+  "actual_wgs_executed": false,
+  "notes": [
+    "Signature depends on the absolute code path by existing design; comparisons performed at the identical PROJECT path",
+    "All real stage Bash files, run.sh, run_array.sh and validate_alignment.py remain byte-identical to input archive"
+  ]
+}

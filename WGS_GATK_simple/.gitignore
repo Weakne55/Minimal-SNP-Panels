@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+.snakemake/
+.DS_Store
+*.out
+*.err
+.pytest_cache/
+coverage/

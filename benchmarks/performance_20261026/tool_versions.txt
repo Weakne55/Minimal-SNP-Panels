@@ -1,0 +1,17 @@
+2026-10-26T20:18:53+03:00
+/nfs/home/bkarpovich/miniconda3/envs/wgs-gatk/bin/bwa
+
+Program: bwa (alignment via Burrows-Wheeler transformation)
+Version: 0.7.18-r1243-dirty
+Contact: Heng Li <hli@ds.dfci.harvard.edu>
+
+samtools 1.21
+Using htslib 1.23
+bcftools 1.21
+Using htslib 1.23
+Using GATK jar /nfs/home/bkarpovich/miniconda3/envs/wgs-gatk/share/gatk4-4.6.2.0-0/gatk-package-4.6.2.0-local.jar
+Running:
+    java -Dsamjdk.use_async_io_read_samtools=false -Dsamjdk.use_async_io_write_samtools=true -Dsamjdk.use_async_io_write_tribble=false -Dsamjdk.compression_level=2 -jar /nfs/home/bkarpovich/miniconda3/envs/wgs-gatk/share/gatk4-4.6.2.0-0/gatk-package-4.6.2.0-local.jar --version
+The Genome Analysis Toolkit (GATK) v4.6.2.0
+HTSJDK Version: 4.2.0
+Picard Version: 3.4.0
