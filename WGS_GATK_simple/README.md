@@ -1,4 +1,4 @@
-# WGS → cohort VCF (BWA-MEM + GATK4)
+# WGS → cohort VCF (BWA-MEM3 + GATK4)
 
 Простой Bash/Python/SLURM-конвейер для WGS белух (`Delphinapterus_leucas`) и белых медведей (`Ursus_maritimus`). Вход — парные FASTQ **или** готовые координатно отсортированные BAM/CRAM; выход — **один сырой совместно генотипированный VCF по виду**.
 
@@ -11,7 +11,7 @@
 ```bash
 cd WGS_GATK_simple
 conda env create -f envs/wgs.yaml   # один раз
-conda activate wgs-gatk
+conda activate wgs-gatk-mem3
 
 cp config/config.example.yaml config/config.yaml
 # 1. Изменить config/config.yaml (путь к данным, папка результатов,
@@ -46,10 +46,10 @@ python3 scripts/list_reference_contigs.py /data/references/beluga.fa.fai
 
 Нельзя оставлять `[CONTIG1, CONTIG2]` в рабочей конфигурации: это заглушки. Для текущего исследования ожидаются 21 аутосома белухи и 36 белого медведя, но **названия** берутся именно из выбранного FASTA `.fai`, а не придумываются вручную. Наличие всех остальных контигов в FASTA допустимо: в анализ попадут только выбранные `contigs`.
 
-Для каждого FASTA заранее должны существовать `ref.fa.fai`, `ref.dict`, а также индексы BWA (`.amb`, `.ann`, `.bwt`, `.pac`, `.sa`). Конвейер **не** перестраивает эти индексы автоматически. Если они ещё не созданы:
+Для каждого FASTA заранее должны существовать `ref.fa.fai`, `ref.dict`, а также индексы BWA-MEM3 (`.amb`, `.ann`, `.bwt.2bit.64`, `.pac`). Конвейер **не** перестраивает эти индексы автоматически. Если они ещё не созданы:
 
 ```bash
-bwa index /data/references/beluga.fa
+bwa-mem3 index /data/references/beluga.fa
 samtools faidx /data/references/beluga.fa
 gatk CreateSequenceDictionary -R /data/references/beluga.fa
 ```
@@ -98,7 +98,7 @@ workdir/
 ```text
 samples.tsv + config.yaml
           |
-          +--> FASTQ --> [опциональный fastp] --> BWA-MEM
+          +--> FASTQ --> [опциональный fastp] --> BWA-MEM3 (--compat=bwa-mem)
           |                                       |
           |                         samtools sort + markdup
           |                                       |
@@ -155,3 +155,15 @@ bash -n run.sh scripts/run_array.sh scripts/stages/*.sh
 принимает VCF/BCF и `population_labels.tsv` без необходимости запускать WGS.
 
 Проверки без вычислений: `python3 -m pytest -q` в `WGS_GATK_simple`.
+
+## Переход на BWA-MEM3
+
+BWA-MEM3 0.15.1 выполняет выравнивание FASTQ с `--compat=bwa-mem`;
+остальные команды samtools/GATK не изменены. **Старые индексы BWA v1
+несовместимы:** референсы должны иметь `.bwt.2bit.64`, `.amb`, `.ann`, `.pac`.
+Индексы строятся отдельно, за пределами WGS-пайплайна.
+
+Используйте **новый `workdir`** для сравнения BWA-MEM и BWA-MEM3.
+Существующие BAM/GVCF и checkpoints не удаляйте. Подробности —
+[документ по миграции](docs/BWA_MEM3_MIGRATION.md).
+Для сравнения сохранён `envs/wgs_bwa_legacy.yaml` с BWA 0.7.18.

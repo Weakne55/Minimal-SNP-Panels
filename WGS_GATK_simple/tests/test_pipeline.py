@@ -25,7 +25,7 @@ def make_example(tmp_path, mode="fastq", trim=False):
     (tmp_path / "species.dict").write_text(
         "@HD\tVN:1.6\n@SQ\tSN:chr1\tLN:4\n@SQ\tSN:chr2\tLN:4\n"
     )
-    for ext in ("amb", "ann", "bwt", "pac", "sa"):
+    for ext in ("amb", "ann", "bwt.2bit.64", "pac"):
         Path(str(ref) + "." + ext).write_text("index")
 
     entries = []

@@ -155,9 +155,13 @@ def validate(cfg, check_files=True):
 
     # Проверки файлов референсов и формата samples.tsv реализованы
     # в model.py; здесь используется их результат.
-    check_references(cfg["references"], PROJECT, check_files=check_files)
     units, samples, groups = load_manifest(
         cfg["samples"], cfg["references"], PROJECT, check_files=check_files
+    )
+    # Ready BAM/CRAM inputs require FASTA/FAI/DICT, but never an aligner index.
+    check_references(
+        cfg["references"], PROJECT, check_files=check_files,
+        alignment_species={unit.species for unit in units if unit.input_type == "fastq"},
     )
 
     # Опциональная обработка FASTQ должна включаться строго через
@@ -368,7 +372,7 @@ def _add_fastq_tasks(cfg, workdir, units, add, align_cpus):
             [lane_bam],
             deps=dependencies,
             inputs=[*inputs, ref, ref + ".fai", *(
-                ref + "." + ext for ext in ("amb", "ann", "bwt", "pac", "sa")
+                ref + "." + ext for ext in ("amb", "ann", "bwt.2bit.64", "pac")
             )],
         )
         # Запоминаем готовящийся BAM и ID задачи для объединения дорожек.

@@ -12,7 +12,7 @@ printf -v rg '@RG\tID:%s.%s.%s\tSM:%s\tLB:%s\tPL:ILLUMINA\tPU:%s.%s' \
   "$sample" "$lib" "$lane" "$sample" "$lib" "$lib" "$lane"
 # Use literal backslash-t in BWA -R (BWA decodes it to tab).
 rg=${rg//$'\t'/\\t}
-bwa mem -t "$((threads-4))" -R "$rg" "$ref" "$r1" "$r2" \
+bwa-mem3 mem --compat=bwa-mem -t "$((threads-4))" -R "$rg" "$ref" "$r1" "$r2" \
   | samtools collate -O -u - "$tmpdir/collate" \
   | samtools fixmate -m -u - - \
   | samtools sort -@ 2 -m 1G -T "$tmpdir/sort" -o "$out" -

@@ -1,4 +1,4 @@
-"""Golden DAG snapshots from the unmodified WGS_GATK_simple (29 Oct 2026).
+"""Golden DAG snapshots after the intentional BWA-MEM3 aligner migration.
 
 No bioinformatics commands run. Fixture paths are normalized for portability;
 the raw task signatures are tested separately because they include PROJECT paths.
@@ -47,7 +47,7 @@ def make_case(tmp_path, case):
             fasta.with_suffix(".dict").write_text(
                 "@HD\tVN:1.6\n" + "".join(f"@SQ\tSN:{name}\tLN:1\n" for name in contigs)
             )
-            for suffix in ("amb", "ann", "bwt", "pac", "sa"):
+            for suffix in ("amb", "ann", "bwt.2bit.64", "pac"):
                 Path(str(fasta) + "." + suffix).write_text("index")
             references[species] = {"fasta": str(fasta), "contigs": contigs}
         settings["references"] = references
@@ -137,3 +137,13 @@ def test_resume_propagates_modified_input(tmp_path):
     assert not pending["trim.S2.L1.lane1"]
     assert not pending["align.S2.L1.lane1"]
     assert not pending["markdup.S2"]
+
+
+def test_legacy_reference_non_aligning_snapshots_unchanged():
+    """BAM/CRAM plans must remain identical to legacy BWA-based pipeline."""
+    legacy = json.loads(Path(__file__).with_name("golden_plan_digests_bwa_legacy.json").read_text())
+    new = json.loads(GOLDEN.read_text())
+    for case in ("bam", "cram"):
+        assert new[case] == legacy[case]
+    for case in ("fastq_untrimmed", "fastq_trimmed", "fastq_multilane", "beluga_bear_autosomes"):
+        assert new[case]["sha256"] != legacy[case]["sha256"]

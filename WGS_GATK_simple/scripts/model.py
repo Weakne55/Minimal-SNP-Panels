@@ -334,21 +334,22 @@ def reference_dict_path(fasta: Path) -> Path:
 
     return Path(str(fasta) + ".dict")
 
-def check_references(references, root, check_files=True):
+def check_references(references, root, check_files=True, alignment_species=None):
     """
     Проверить референсные геномы и подготовленные индексы.
 
     Аргументы:
         references:  словарь референсов из config.yaml;
         root:        корневая директория проекта;
-        check_files: проверять существование и содержимое
-                     файлов референса и индексов.
+        check_files: проверять существование и содержимое файлов.
+        alignment_species: множество видов, для которых нужен индекс
+                           BWA-MEM3. None означает все виды.
 
     Проверяет:
         - наличие хотя бы одного референса;
         - допустимость названий видов и contigs;
         - отсутствие повторяющихся contigs;
-        - наличие FASTA, FAI, DICT и индексов BWA;
+        - наличие FASTA, FAI, DICT и при необходимости индексов BWA-MEM3;
         - наличие выбранных contigs в .fai;
         - правильный порядок contigs;
         - совпадение имён и длин последовательностей
@@ -414,10 +415,11 @@ def check_references(references, root, check_files=True):
             dictionary,
         ]
 
-        files += [
-            Path(str(fasta) + "." + ext)
-            for ext in ("amb", "ann", "bwt", "pac", "sa")
-        ]
+        if alignment_species is None or species in alignment_species:
+            files += [
+                Path(str(fasta) + "." + ext)
+                for ext in ("amb", "ann", "bwt.2bit.64", "pac")
+            ]
 
         for filename in files:
 

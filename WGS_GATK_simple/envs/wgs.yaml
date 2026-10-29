@@ -1,4 +1,4 @@
-name: wgs-gatk
+name: wgs-gatk-mem3
 channels:
   - conda-forge
   - bioconda
@@ -7,9 +7,9 @@ dependencies:
   - python=3.11
   - pyyaml=6.0
   - openjdk=17
-  - bwa=0.7.18
-  - samtools=1.21
-  - bcftools=1.21
+  - bwa-mem3=0.15.1
+  - samtools=1.24
+  - bcftools=1.24
   - gatk4=4.6.2.0
   - mosdepth=0.3.11
   - fastp=0.24.0
