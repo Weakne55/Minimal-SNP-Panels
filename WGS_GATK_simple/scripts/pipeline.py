@@ -40,6 +40,28 @@ RESOURCE_DEFAULTS = {
     "multiqc": (2, 8000, 2),
 }
 
+def missing_output(task):
+    """Return the first absent/empty output, including an index for GATK VCFs.
+
+    A VCF index is accepted in any of the three formats used by the
+    original pipeline; all other stages only require their declared outputs.
+    """
+    for filename in task["outputs"]:
+        path = Path(filename)
+        if not path.is_file() or path.stat().st_size == 0:
+            return filename
+
+    if task["stage"] in ("haplotypecaller", "genotype"):
+        vcf = task["outputs"][0]
+        if not any(
+            Path(vcf + suffix).is_file() and Path(vcf + suffix).stat().st_size > 0
+            for suffix in (".tbi", ".idx", ".csi")
+        ):
+            return f"{vcf} (index)"
+
+    return None
+
+
 def is_completed(task, workdir):
     """
     Проверить, можно ли использовать результат ранее выполненной задачи.
@@ -64,19 +86,8 @@ def is_completed(task, workdir):
 
         finished_at = marker.stat().st_mtime
 
-        for filename in task["outputs"]:
-            output = Path(filename)
-            if not output.is_file() or output.stat().st_size == 0:
-                return False
-
-        if task["stage"] in ("haplotypecaller", "genotype"):
-            vcf = task["outputs"][0]
-            if not any(
-                Path(vcf + ext).is_file()
-                and Path(vcf + ext).stat().st_size > 0
-                for ext in (".tbi", ".idx", ".csi")
-            ):
-                return False
+        if missing_output(task) is not None:
+            return False
 
         if any(
             not Path(filename).is_file()
@@ -187,19 +198,11 @@ def run_one_task(plan_file, task_id):
     print(f"RUN  {task_id}", flush=True)
     subprocess.run(["bash", str(script)], cwd=PROJECT, check=True)
 
-    for filename in task["outputs"]:
-        output = Path(filename)
-        if not output.is_file() or output.stat().st_size == 0:
-            raise RuntimeError(f"{task_id}: missing or empty output {filename}")
-
-    if task["stage"] in ("haplotypecaller", "genotype"):
-        vcf = task["outputs"][0]
-        if not any(
-            Path(vcf + ext).is_file()
-            and Path(vcf + ext).stat().st_size > 0
-            for ext in (".tbi", ".idx", ".csi")
-        ):
+    missing = missing_output(task)
+    if missing is not None:
+        if missing.endswith(" (index)"):
             raise RuntimeError(f"{task_id}: missing VCF index")
+        raise RuntimeError(f"{task_id}: missing or empty output {missing}")
 
     temporary = marker.with_suffix(".tmp")
     temporary.write_text(
@@ -265,12 +268,14 @@ def submit_to_slurm(tasks, pending, workdir, plan, cfg):
     jobs = {}  # Название этапа -> полученный SLURM Job ID.
     by_id = {task["id"]: task for task in tasks}
 
-    for stage in STAGES:
+    # Group pending tasks once, keeping the order used by job arrays.
+    pending_by_stage = {stage: [] for stage in STAGES}
+    for task in tasks:
+        if pending[task["id"]]:
+            pending_by_stage[task["stage"]].append(task)
 
-        selected = [
-            t for t in tasks
-            if t["stage"] == stage and pending[t["id"]]
-        ]
+    for stage in STAGES:
+        selected = pending_by_stage[stage]
         if not selected:
             continue
 
