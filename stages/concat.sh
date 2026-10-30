@@ -1,48 +1,33 @@
 #!/usr/bin/env bash
-# Назначение: объединить непересекающиеся хромосомные multi-sample VCF.
-# Вход: VCF/BCF всех contigs одного вида и сборки, в порядке референса.
-# Выход: общий multi-sample BCF с индексом CSI.
-# Важно: состав и порядок образцов должны совпадать во всех VCF.
+# Назначение: конкатенация VCF разных contigs с одинаковыми sample columns.
+# Usage: concat.sh OUT.bcf IN1.vcf.gz [IN2.vcf.gz ...]
 set -euo pipefail
-
-usage() {
-  cat <<'EOF'
-Usage: concat.sh OUT.bcf CONTIG_1.vcf.gz [CONTIG_2.vcf.gz ...]
-
-bcftools concat объединяет genomic regions, но НЕ разные наборы образцов.
-EOF
-}
-
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then usage; exit 0; fi
-if (( $# < 2 )); then usage >&2; exit 2; fi
-
+source "$(dirname "${BASH_SOURCE[0]}")/resource_lib.bash"
+if [[ "${1:-}" == '-h' || "${1:-}" == '--help' ]]; then
+    echo 'Usage: concat.sh OUT.bcf IN1.vcf.gz [IN2.vcf.gz ...]'; exit 0
+fi
+if (( $# < 2 )); then echo 'Usage: concat.sh OUT.bcf IN1.vcf.gz [IN2.vcf.gz ...]' >&2; exit 2; fi
 output_bcf=$1
 shift
-input_vcfs=("$@")
-
-if [[ -e "$output_bcf" || -e "${output_bcf}.csi" ]]; then
-  echo "Результат уже существует: $output_bcf" >&2
-  exit 2
-fi
+[[ ! -e "$output_bcf" && ! -e "${output_bcf}.csi" ]] || {
+    echo "Выходной BCF уже существует: $output_bcf" >&2; exit 2;
+}
 mkdir -p "$(dirname "$output_bcf")"
-
-# Проверяем sample columns до объединения файлов.
-first_samples=$(bcftools query -l "${input_vcfs[0]}")
-for input_vcf in "${input_vcfs[@]}"; do
-  current_samples=$(bcftools query -l "$input_vcf")
-  if [[ "$current_samples" != "$first_samples" ]]; then
-    echo "Разный состав или порядок образцов: $input_vcf" >&2
-    exit 2
-  fi
+first_samples=$(bcftools query -l "$1")
+for part in "$@"; do
+    [[ "$(bcftools query -l "$part")" == "$first_samples" ]] || {
+        echo "Несовпадающий состав/порядок образцов в $part" >&2; exit 2;
+    }
 done
-
-# Сначала создаём и проверяем временный BCF, затем публикуем результат.
-temporary_bcf="${output_bcf}.incomplete.bcf"
-trap 'rm -f -- "$temporary_bcf" "${temporary_bcf}.csi"' EXIT
-
-bcftools concat -Ob -o "$temporary_bcf" "${input_vcfs[@]}"
-bcftools index -f "$temporary_bcf"
-bcftools index -n "$temporary_bcf" >/dev/null
-mv -- "$temporary_bcf" "$output_bcf"
-mv -- "${temporary_bcf}.csi" "${output_bcf}.csi"
+threads=${MIN_SNP_THREADS:-1}
+minsnp_check_threads "$threads"
+tmp_bcf="${output_bcf}.incomplete.bcf"
+trap 'rm -f -- "$tmp_bcf" "${tmp_bcf}.csi"' EXIT
+compression_threads=$(minsnp_samtools_workers "$threads")
+(( compression_threads > 16 )) && compression_threads=16
+bcftools concat --threads "$compression_threads" -Ob -o "$tmp_bcf" "$@"
+bcftools index -f "$tmp_bcf"
+bcftools index -n "$tmp_bcf" >/dev/null
+mv -- "$tmp_bcf" "$output_bcf"
+mv -- "${tmp_bcf}.csi" "${output_bcf}.csi"
 trap - EXIT

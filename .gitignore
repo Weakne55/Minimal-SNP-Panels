@@ -77,3 +77,6 @@ data/full_wgs_*/
 .minsnp_backups/
 .stage_backups/
 dist/
+.patch_backups/
+data/wgs/
+**/genomes_index_*.out

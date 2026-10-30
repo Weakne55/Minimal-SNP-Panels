@@ -1,34 +1,29 @@
 #!/usr/bin/env bash
-# Назначение: объединить BAM разных runs/библиотек одного образца.
-# Вход: один или несколько coordinate-sorted BAM с корректными read groups.
-# Выход: один BAM (для одного входа — символическая ссылка).
-# Следующий шаг: единый markdup для объединённого BAM.
+# Назначение: объединить BAM нескольких sequencing runs одного образца.
+# Usage: merge_bam.sh OUT.bam THREADS IN1.bam [IN2.bam ...]
 set -euo pipefail
-
-usage() {
-  cat <<'EOF'
-Usage: merge_bam.sh OUT.bam THREADS INPUT_1.bam [INPUT_2.bam ...]
-
-Объединить выравнивания одного образца, сохранив read groups.
-Если вход один, создаётся ссылка без копирования большого BAM.
-EOF
-}
-
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then usage; exit 0; fi
-if (( $# < 3 )); then usage >&2; exit 2; fi
-
+source "$(dirname "${BASH_SOURCE[0]}")/resource_lib.bash"
+if [[ "${1:-}" == '-h' || "${1:-}" == '--help' ]]; then
+    echo 'Usage: merge_bam.sh OUT.bam THREADS IN1.bam [IN2.bam ...]'; exit 0
+fi
+if (( $# < 3 )); then echo 'Usage: merge_bam.sh OUT.bam THREADS IN1.bam [IN2.bam ...]' >&2; exit 2; fi
 output_bam=$1
 threads=$2
 shift 2
-input_bams=("$@")
-
+minsnp_check_threads "$threads"
+[[ ! -e "$output_bam" ]] || { echo "BAM уже существует: $output_bam" >&2; exit 2; }
 mkdir -p "$(dirname "$output_bam")"
-
-if (( ${#input_bams[@]} == 1 )); then
-  ln -sf "$(realpath "${input_bams[0]}")" "$output_bam"
+for input_bam in "$@"; do
+    samtools quickcheck -v "$input_bam"
+done
+if (( $# == 1 )); then
+    ln -s "$(realpath "$1")" "$output_bam"
 else
-  samtools merge -@ "$threads" -f "${output_bam}.tmp" "${input_bams[@]}"
-  mv -- "${output_bam}.tmp" "$output_bam"
+    tmp_bam="${output_bam}.incomplete.bam"
+    trap 'rm -f -- "$tmp_bam"' EXIT
+    samtools merge -@ "$(minsnp_samtools_workers "$threads")" -o "$tmp_bam" "$@"
+    samtools quickcheck -v "$tmp_bam"
+    mv -- "$tmp_bam" "$output_bam"
+    trap - EXIT
 fi
-
 samtools quickcheck -v "$output_bam"

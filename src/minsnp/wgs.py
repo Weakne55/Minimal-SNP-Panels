@@ -65,6 +65,23 @@ def _valid_gvcf(path: Path) -> bool:
     return subprocess.run(["bcftools", "index", "-n", str(path)], capture_output=True).returncode == 0
 
 
+# MIN_SNP_BWA_MEM3_PREFLIGHT_V1
+def _require_bwa_mem3_index(reference_fasta: str) -> None:
+    """Проверить индекс BWA-MEM3 до запуска трудоёмкого картирования."""
+    missing = [
+        f"{reference_fasta}{suffix}"
+        for suffix in (".amb", ".ann", ".pac", ".bwt.2bit.64")
+        if not Path(f"{reference_fasta}{suffix}").is_file()
+        or Path(f"{reference_fasta}{suffix}").stat().st_size == 0
+    ]
+    if missing:
+        raise ValueError(
+            "Референс не проиндексирован для BWA-MEM3: "
+            + ", ".join(missing)
+            + f". Постройте индекс: bwa-mem3 index {reference_fasta!r}"
+        )
+
+
 def run(sheet: str, species: str, spec: dict, cfg: dict, out: Path, logs: Path, resume: bool) -> Path:
     """Подготовить BAM и per-contig gVCF; вернуть manifest для joint calling."""
     grouped = validate_fastq(sheet, species)
@@ -72,6 +89,7 @@ def run(sheet: str, species: str, spec: dict, cfg: dict, out: Path, logs: Path, 
     if threads < 2:
         raise ValueError("Для WGS требуется threads >= 2")
     fasta = spec["fasta"]
+    _require_bwa_mem3_index(fasta)
     manifest = []
 
     for sample, rows in sorted(grouped.items()):

@@ -1,21 +1,45 @@
-# Контракты входов и выходов
+# Контракты входных и выходных данных
 
 ## Пользовательские входы
 
-* `--fastq fastq.tsv`: обязательные столбцы `sample_id,species,run_id,library,fastq_r1,fastq_r2` (разделитель **TAB**). Одна строка — одна paired-end FASTQ-пара/секвенирующий запуск. Допустимы несколько `run_id` и `library` для одного `sample_id`. Все пути — абсолютные; идентификаторы должны совпадать со значениями SM в VCF.
-* `--vcf cohort.vcf.gz` либо `--vcf cohort.bcf`: **индексированный** multi-sample VCF/BCF. Исходный VCF должен относиться к сборке, выбранной по `--species`; совпадение только названий хромосом недостаточно, нужна референсная совместимость.
-* `--labels labels.tsv`: два обязательных столбца `sample_id,population`; необязательный `group` (известные родственники/повторения). Строго один label на sample; набор sample IDs обязан совпадать с VCF.
+**FASTQ (`--fastq`)** — TSV с обязательным заголовком:
 
-## Внутренняя граница WGS → joint
+```text
+sample_id	species	run_id	library	fastq_r1	fastq_r2
+```
 
-`gvcf_manifest.tsv`: `sample_id,contig,gvcf_path`. Для каждого sample есть **все** contigs из references.yaml; gVCF однообразцовый и индексированный; sample ID проверяется по заголовку.
+Каждая строка — одна paired-end FASTQ-пара; у образца допустимы несколько
+`run_id`/`library`. `species` — `beluga` либо `polar_bear`.
+Пути к FASTQ могут быть абсолютными или **относительными к каталогу TSV**.
+Повторное использование одного FASTQ и дубликаты комбинаций
+`sample_id`/`run_id`/`library` недопустимы. Manifest должен содержать
+**реальные** файлы, а не только заголовок шаблона.
+
+**VCF (`--vcf`)** — индексированный multi-sample `VCF.gz` или `BCF`
+из той же референсной сборки, что и `--species`.
+
+**Метки (`--labels`)** — TSV с `sample_id`, `population`; дополнительный
+`group` используют для группового разделения обучающей и тестовой выборок.
+Географические поля из `data/metadata/WGS_final.xlsx` сами по себе не
+являются подтверждёнными генетическими population labels.
+
+## Внутренние контракты WGS → joint
+
+`gvcf_manifest.tsv`: `sample_id`, `contig`, `gvcf_path`.
+Ожидается полная матрица sample × contig, однообразцовые индексированные
+хромосомные gVCF с одинаковой сборкой и корректными sample IDs.
 
 ## Выходы
 
-* `wgs/gvcf/<sample>/<contig>.g.vcf.gz` + индексы, `wgs/bam/`, `wgs/qc/`, `wgs/gvcf_manifest.tsv`.
-* `joint/cohort.raw.bcf` и `.csi`.
-* `qc/normalized.bcf`, `qc/filtered.bcf`, `qc/bcftools.stats.txt`, `qc/qc_summary.tsv`.
-* `structure/pca.tsv`, `structure/pca.png`, `structure/population_labels.tsv`, `structure/cluster_diagnostics.tsv`.
-* `panels/cv_metrics.tsv`, `panels/nested_cv_metrics.tsv` (при достаточном N), `panels/cv_predictions.tsv`, `panels/fold_selections.tsv`, `panels/minimal_panel.tsv`, `panels/model.joblib`, рисунки.
+- `wgs/lanes/` — BAM по sequencing runs;
+- `wgs/bam/` — merged и markdup BAM, индексы;
+- `wgs/qc/` — BAM QC и duplicate metrics;
+- `wgs/gvcf/` и `wgs/gvcf_manifest.tsv` — gVCF для joint;
+- `joint/genomicsdb/`, `joint/per_contig/` — промежуточный joint calling;
+- `joint/cohort.raw.bcf` и `.csi` — индексированный multi-sample BCF;
+- `joint/cohort.raw.vcf.gz` и `.csi` — экспорт VCF в режиме `wgs-vcf`;
+- `qc/` — нормализованные и фильтрованные SNP (отдельная команда `qc` или `run`);
+- `structure/`, `panels/` — последующие исследовательские стадии.
 
-Промежуточные результаты никогда не записываются в исходный репозиторий; каждый `run_id` создаёт отдельную папку.
+Выходы сохраняются в `results/<species>/<run-id>/` (по умолчанию).
+Не менять или удалять старые `results/beluga_wgs_20261023/` при тестировании.

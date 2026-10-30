@@ -9,6 +9,7 @@ import shlex
 import subprocess
 import sys
 from . import joint, qc, wgs
+from .resources import configure_resources
 from .core import ROOT, capture_versions, config, file_exists, prepare_run, require_commands, samples_in_vcf, source_fingerprint
 
 
@@ -27,43 +28,59 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--references", default=str(ROOT / "config/references.yaml"))
     p.add_argument("--settings", default=str(ROOT / "config/pipeline.yaml"))
     p.add_argument("--backend", choices=["local", "slurm"], default="local")
+    p.add_argument("--threads", type=int, help="CPU >= 1, переопределяет threads из YAML")
+    p.add_argument("--memory", help="RAM для job: например 32G, 64G, 128G")
     p.add_argument("--resume", action="store_true")
     return p
 
 
 def submit_slurm(args, cfg: dict, run: Path) -> None:
+    """Один SLURM job на WGS→VCF, с явно выделенными CPU и RAM."""
     require_commands("sbatch")
-    s = cfg["slurm"]
+    slurm_cfg = cfg["slurm"]
     logs = run / "logs"
-    logs.mkdir(exist_ok=True)
+    logs.mkdir(parents=True, exist_ok=True)
     script = run / "slurm_job.sh"
     previous = run / "slurm_job_id.txt"
     if previous.is_file():
         prior_id = previous.read_text().strip().split(";")[0]
         active = subprocess.run(["squeue", "-h", "-j", prior_id], capture_output=True, text=True)
         if active.returncode == 0 and active.stdout.strip():
-            raise ValueError(f"В SLURM уже выполняется job {prior_id} для этого run_id")
-    argv = sys.argv[1:]
-    argv = ["local" if x == "slurm" else x.replace("--backend=slurm", "--backend=local") for x in argv]
-    # Запуск job должен использовать тот же идентификатор и состояние запуска.
-    if "--run-id" not in argv:
-        argv.extend(["--run-id", run.name])
-    if "--resume" not in argv:
-        argv.append("--resume")
-    # В job используется то же Python-окружение, из которого выполнен sbatch.
-    script.write_text("#!/usr/bin/env bash\nset -euo pipefail\n" +
-                      f"export PYTHONPATH={shlex.quote(str(ROOT / 'src'))}\n" +
-                      shlex.join([sys.executable, "-m", "minsnp.cli", *argv]) + "\n")
-    cmd = ["sbatch", "--parsable", "--job-name", f"minsnp_{args.species}",
-           "--cpus-per-task", str(cfg["threads"]), "--mem", str(s["memory"]),
-           "--time", str(s["time"]), "--output", str(logs / "slurm_%j.out")]
-    if s.get("partition"):
-        cmd.extend(["--partition", str(s["partition"])])
-    cmd.append(str(script))
-    job = subprocess.run(cmd, capture_output=True, text=True, check=True).stdout.strip()
-    (run / "slurm_job_id.txt").write_text(job + "\n")
-    print("SLURM job:", job)
+            raise ValueError(f"SLURM job {prior_id} уже выполняется для run-id={run.name}")
 
+    # Внутри job запускаем тот же CLI в local mode. Путь и среда остаются прежними.
+    arguments = sys.argv[1:]
+    arguments = ["local" if x == "slurm" else x.replace("--backend=slurm", "--backend=local") for x in arguments]
+    if "--run-id" not in arguments and not any(x.startswith("--run-id=") for x in arguments):
+        arguments.extend(["--run-id", run.name])
+    if "--resume" not in arguments:
+        arguments.append("--resume")
+    if args.threads is None:
+        arguments.extend(["--threads", str(cfg["_requested_threads"])])
+    if args.memory is None:
+        arguments.extend(["--memory", cfg["_requested_memory"]])
+    script.write_text(
+        "#!/usr/bin/env bash\nset -euo pipefail\n"
+        + f"export PYTHONPATH={shlex.quote(str(ROOT / 'src'))}\n"
+        + shlex.join([sys.executable, "-m", "minsnp.cli", *arguments]) + "\n"
+    )
+    script.chmod(0o750)
+    command = [
+        "sbatch", "--parsable", "--nodes=1", "--ntasks=1",
+        "--job-name", f"minsnp_{args.species}",
+        "--cpus-per-task", str(cfg["_requested_threads"]),
+        "--mem", cfg["_requested_memory"],
+        "--time", str(slurm_cfg["time"]),
+        "--chdir", str(ROOT),
+        "--output", str(logs / "slurm_%j.out"),
+        "--error", str(logs / "slurm_%j.err"),
+    ]
+    if slurm_cfg.get("partition"):
+        command.extend(["--partition", str(slurm_cfg["partition"])])
+    command.append(str(script))
+    job_id = subprocess.run(command, capture_output=True, text=True, check=True).stdout.strip()
+    previous.write_text(job_id + "\n")
+    print("SLURM job:", job_id)
 
 def main() -> None:
     args = parser().parse_args()
@@ -73,6 +90,7 @@ def main() -> None:
     if not args.species:
         raise ValueError("Укажите --species")
     cfg, spec = config(Path(args.references), Path(args.settings), args.species)
+    cfg = configure_resources(args, cfg)
     if (args.command in {"wgs", "wgs-vcf"} and not args.fastq) or (args.command == "joint" and not (args.gvcf_manifest or args.fastq)):
         raise ValueError("Для wgs нужен --fastq; для joint нужен --gvcf-manifest или --fastq")
     if args.command in {"qc", "structure", "panels"} and not args.vcf:
@@ -87,6 +105,7 @@ def main() -> None:
               "labels": str(Path(args.labels).resolve()) if args.labels else None,
               "mode": args.mode, "ref": str(Path(args.references).resolve()), "settings": str(Path(args.settings).resolve()),
               "checksums": {k: source_fingerprint(v) for k, v in {"fastq": args.fastq, "vcf": args.vcf, "gvcf": args.gvcf_manifest, "labels": args.labels, "references": args.references, "settings": args.settings}.items()}}
+    inputs["resources"] = {"threads": cfg["_requested_threads"], "memory": cfg["_requested_memory"]}
     run_id = args.run_id or datetime.now().strftime("%Y%m%d_%H%M%S")
     run = prepare_run(Path(args.outdir).resolve(), args.species, run_id, inputs, args.resume)
     if args.backend == "slurm":

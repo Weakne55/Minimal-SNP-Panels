@@ -1,26 +1,18 @@
 #!/usr/bin/env bash
-# Назначение: собрать метрики качества выравнивания и глубины покрытия.
-# Вход: окончательный BAM, префикс файлов QC, число потоков.
-# Выход: flagstat, samtools stats, mosdepth summary / dist.
+# Назначение: BAM QC (flagstat, stats и mosdepth).
+# Usage: bam_qc.sh INPUT.bam OUTPUT_PREFIX THREADS
 set -euo pipefail
-
-usage() {
-  cat <<'EOF'
-Usage: bam_qc.sh INPUT.bam OUTPUT_PREFIX THREADS
-
-Метрики выравнивания: samtools flagstat, samtools stats и mosdepth.
-EOF
-}
-
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then usage; exit 0; fi
-if (( $# != 3 )); then usage >&2; exit 2; fi
-
+source "$(dirname "${BASH_SOURCE[0]}")/resource_lib.bash"
+if [[ "${1:-}" == '-h' || "${1:-}" == '--help' ]]; then
+    echo 'Usage: bam_qc.sh INPUT.bam OUTPUT_PREFIX THREADS'; exit 0
+fi
+if (( $# != 3 )); then echo 'Usage: bam_qc.sh INPUT.bam OUTPUT_PREFIX THREADS' >&2; exit 2; fi
 input_bam=$1
-output_prefix=$2
+prefix=$2
 threads=$3
-
-mkdir -p "$(dirname "$output_prefix")"
-
-samtools flagstat -@ "$threads" "$input_bam" > "${output_prefix}.flagstat.txt"
-samtools stats -@ "$threads" "$input_bam" > "${output_prefix}.stats.txt"
-mosdepth -t "$threads" -n "$output_prefix" "$input_bam"
+minsnp_check_threads "$threads"
+mkdir -p "$(dirname "$prefix")"
+workers=$(minsnp_samtools_workers "$threads")
+samtools flagstat -@ "$workers" "$input_bam" > "${prefix}.flagstat.txt"
+samtools stats -@ "$workers" "$input_bam" > "${prefix}.stats.txt"
+mosdepth -t "$threads" -n "$prefix" "$input_bam"

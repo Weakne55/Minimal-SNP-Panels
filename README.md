@@ -1,71 +1,127 @@
-# Minimal SNP Panels — новая реализация v0.1
+# Minimal SNP Panels — Beluga & Polar Bear
 
 Пять модулей: `wgs` → `joint` → `qc` → `structure` → `panels`. Основные пользовательские входы: FASTQ с TSV либо готовый индексированный multi-sample VCF.gz/BCF. gVCF используется только между WGS и joint.
 
-**Статус:** проектный код с офлайн-тестами. Никакого реального end-to-end теста на `sphinx` не было. Не заменяйте им работающую версию и не удаляйте существующие результаты.
+**Статус:** код и локальные тесты актуализированы; реальный end-to-end FASTQ → VCF на `sphinx` пока не подтверждён.
 
-## Установка на sphinx
+## Установка и проверка на sphinx
+
+Основной Git-репозиторий: `Minimal-SNP-Panels` (ветка разработки `develop`).
+Текущее окружение — `wgs-gatk-mem3` с BWA-MEM3, samtools, bcftools,
+GATK4, fastp, mosdepth, PLINK2 и Python 3.11. Не обновляйте инструменты
+посреди активного WGS-запуска.
 
 ```bash
+cd /mnt/tank/scratch/plem/data/Bogdan/Minimal-SNP-Panels
 conda activate wgs-gatk-mem3
-# В исходном conda list присутствуют bwa-mem3 0.15.1, samtools/bcftools 1.24, GATK 4.7.0.0, fastp, mosdepth.
-# Для аналитических модулей дополнительно требуются PLINK 2, scikit-learn, matplotlib.
-conda install -n wgs-gatk-mem3 -c conda-forge -c bioconda plink2 scikit-learn matplotlib
 python -m pip install --no-deps -e .
 ./run_pipeline.sh check-tools
+python -m pytest -q
+bash -n run_pipeline.sh stages/*.sh
 ```
 
-Не устанавливайте зависимости во время обработки WGS; перед запуском проверьте, что окружение разрешает все зависимости. Изменение существующего Conda-окружения выполняется вручную. Можно создать его копию для проверки совместимости.
+Исходные FASTQ находятся в `data/wgs/`; исходная инвентаризация —
+`data/metadata/WGS_final.xlsx`. Результаты прежних запусков сохраняются
+в `results/`, старый код — в `legacy/`. Отсутствующие скрипты подготовки
+данных и референсов искать в `tools/`.
 
 ### Референсы
 
-`inputs/` содержит пустые TSV-шаблоны **только с заголовками**, без выдуманных данных.
+Список аутосом и пути FASTA задаёт `config/references.yaml`:
 
-`config/references.yaml` содержит FASTA и списки аутосом белухи и белого медведя, перенесённые из исходного WGS-архива. Проверьте пути, `.fai`, `.dict`, индексы BWA-MEM3 до запуска:
+- Белуха: `GCA_059928025.1` (21 аутосома).
+- Белый медведь: `GCA_062004589.1` (36 аутосом).
+
+До запуска FASTQ → VCF нужны FASTA, `.fai`, GATK sequence dictionary и
+полный индекс BWA-MEM3, включая `<FASTA>.bwt.2bit.64`. **Индекс BWA
+не заменяет индекс BWA-MEM3.** Предыдущая проверка на `sphinx` обнаружила
+отсутствие `.bwt.2bit.64` для обоих видов; повторно проверяйте его перед
+запуском. Подготовка индексов выполняется отдельным заданием с достаточной RAM.
+
+Пустой `inputs/fastq.template.tsv` — **только шаблон**, а не готовый manifest.
+Один sample может иметь несколько строк для разных sequencing runs.
+Подробности формата — в [`docs/CONTRACTS.md`](docs/CONTRACTS.md).
+
+## Команды запуска
+
+Все примеры выполняются из корня репозитория. Файл `inputs/fastq.tsv`
+нужно **сначала создать** из фактических FASTQ; его нет среди шаблонов.
+Вместо `beluga` допустимо `polar_bear`.
 
 ```bash
-samtools faidx /path/reference.fna
-gatk CreateSequenceDictionary -R /path/reference.fna
-bwa-mem3 index /path/reference.fna
+# 1. Только FASTQ → BAM → per-contig gVCF и gvcf_manifest.tsv
+./run_pipeline.sh wgs --fastq inputs/fastq.tsv --species beluga \
+  --run-id beluga_gvcf_001 --backend slurm --threads 8 --memory 64G
+
+# 2. FASTQ → BAM → gVCF → joint BCF → joint VCF.gz (без variant QC и панелей)
+./run_pipeline.sh wgs-vcf --fastq inputs/fastq.tsv --species beluga \
+  --run-id beluga_vcf_001 --backend slurm --threads 16 --memory 96G
+
+# 3. Только совместное генотипирование из существующего gVCF manifest
+./run_pipeline.sh joint --gvcf-manifest /path/to/gvcf_manifest.tsv \
+  --species beluga --run-id beluga_joint_001 --backend slurm \
+  --threads 8 --memory 64G
+
+# 4. Только QC индексированного multi-sample VCF/BCF
+./run_pipeline.sh qc --vcf /path/to/cohort.raw.bcf --species beluga \
+  --run-id beluga_qc_001 --backend slurm --threads 4 --memory 32G
+
+# 5. Полный анализ по FASTQ (WGS, joint, QC, structure, panels)
+./run_pipeline.sh run --fastq inputs/fastq.tsv --species beluga \
+  --run-id beluga_full_001 --backend slurm --threads 16 --memory 96G
+
+# 6. Готовый VCF + внешние population labels → QC и панели
+./run_pipeline.sh run --vcf /path/to/cohort.bcf \
+  --labels /path/to/population_labels.tsv --species beluga \
+  --run-id beluga_panels_001 --backend slurm --threads 8 --memory 64G
+
+# 7. Локальная отладка с одним CPU (без отправки в SLURM)
+./run_pipeline.sh wgs-vcf --fastq inputs/fastq.tsv --species beluga \
+  --run-id beluga_local_001 --backend local --threads 1 --memory 48G
 ```
 
-**Осторожно:** `bwa-mem3 index` выполните только если индексы ещё не созданы. Не смешивайте индексы разных сборок.
+**Параметры:** `--threads` — целое число не меньше 1; `--memory` — бюджет RAM,
+например `32G`, `65536M`. Они независимы. По умолчанию используются
+`threads` и `slurm.memory` из `config/pipeline.yaml`. Внутри задания
+учитывается фактическое выделение SLURM. Дополнительные CPU не обязаны
+ускорять все инструменты. Выделение 1 CPU не отменяет требования BWA-MEM3
+к достаточному объёму RAM. Подробнее —
+[`docs/WGS_SLURM_RESOURCES.md`](docs/WGS_SLURM_RESOURCES.md).
 
-## Команды
-
-```bash
-# 1. FASTQ → joint BCF → QC → PCA/clustering → SNP panels
-./run_pipeline.sh run --fastq /path/fastq.tsv --species beluga --run-id beluga_001
-
-# 2. Внешний VCF/BCF → QC → PCA/clustering → SNP panels
-./run_pipeline.sh run --vcf /path/cohort.vcf.gz --species beluga --run-id beluga_vcf_001
-
-# 3. Внешний VCF/BCF + метки → QC → панели, без PCA
-./run_pipeline.sh run --vcf /path/cohort.bcf --labels /path/labels.tsv --species beluga --run-id beluga_panel_001
-
-# 4. Только анализ структуры (без автоматического отбора SNP)
-./run_pipeline.sh run --vcf /path/cohort.bcf --mode structure --species beluga --run-id beluga_structure_001
-
-# 5. Только WGS (до per-contig gVCF)
-./run_pipeline.sh wgs --fastq /path/fastq.tsv --species beluga --run-id beluga_wgs_001
-
-# 6. Отдельный joint по уже созданному gvcf_manifest.tsv
-./run_pipeline.sh joint --gvcf-manifest /path/gvcf_manifest.tsv --species beluga --run-id beluga_joint_001
-```
-
-Результаты сохраняются в `results/<species>/<run_id>/`, журналы в `<run_id>/logs/`. При повторном запуске неизменного конфигурационного набора используйте `--resume`. Повторный вызов на том же `run_id` без `--resume` завершится ошибкой.
-
-### SLURM
-
-Пока один `sbatch` на **весь вызов CLI** (последовательный анализ внутри job), без массивов задач или разбиения по образцам. Это базовая совместимость со SLURM, не масштабируемый HPC-оркестратор.
+**SLURM:** один `sbatch` на весь вызов (без job arrays); число CPU/RAM
+задаётся `--threads`/`--memory`, partition и time — в `config/pipeline.yaml`.
 
 ```bash
-./run_pipeline.sh run --fastq /path/fastq.tsv --species beluga \
-  --run-id beluga_slurm_001 --backend slurm
 squeue -u "$USER"
+# Подставить полученный job ID
+sacct -j JOB_ID --format=JobID,JobName,State,Elapsed,AllocCPUS,ReqMem,MaxRSS
 ```
 
-ID задачи: `results/beluga/beluga_slurm_001/slurm_job_id.txt`. stdout: `logs/slurm_<job_id>.out`. Настраиваем `config/pipeline.yaml -> slurm` (CPU, RAM, partition, walltime). Job запускает тот же Python interpreter из активированного окружения, поэтому SLURM должен экспортировать PATH и переменные окружения.
+Результаты: `results/<species>/<run-id>/`; SLURM job ID:
+`results/<species>/<run-id>/slurm_job_id.txt`; логи в `logs/`.
+Для продолжения **того же запуска с теми же входами и ресурсами** применяется
+`--resume`; для новых CPU/RAM, manifest или референса используйте новый `run-id`.
+Не запускайте WGS по пустому TSV-шаблону.
+
+### Основные выходы `wgs-vcf`
+
+```text
+results/beluga/beluga_vcf_001/
+├── wgs/
+│   ├── lanes/                # выравнивания отдельных runs
+│   ├── bam/                  # объединённые BAM и BAM после markdup
+│   ├── qc/                   # flagstat/stats/mosdepth
+│   ├── gvcf/                 # per-sample × per-contig gVCF
+│   └── gvcf_manifest.tsv
+├── joint/
+│   ├── genomicsdb/
+│   ├── per_contig/
+│   ├── cohort.raw.bcf
+│   └── cohort.raw.vcf.gz
+└── logs/
+```
+
+`wgs-vcf` **не** запускает SNP QC, population structure или поиск панелей.
 
 ## Научные ограничения
 
