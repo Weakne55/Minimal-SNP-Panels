@@ -1,0 +1,152 @@
+file	field	role	nonempty	total	in_recommended_working_table	note
+polar_bear_WGS_metadata_final_144.tsv	biosample	WORKING	144	144	1	рабочее поле
+polar_bear_WGS_metadata_final_144.tsv	animal_id_in_paper	WORKING	144	144	1	рабочее поле
+polar_bear_WGS_metadata_final_144.tsv	high_coverage_id	WORKING	19	144	1	рабочее поле
+polar_bear_WGS_metadata_final_144.tsv	run_accessions	WORKING	144	144	1	рабочее поле
+polar_bear_WGS_metadata_final_144.tsv	n_runs	WORKING	144	144	1	рабочее поле
+polar_bear_WGS_metadata_final_144.tsv	bioproject	WORKING	144	144	1	рабочее поле
+polar_bear_WGS_metadata_final_144.tsv	primary_paper	WORKING	144	144	1	рабочее поле
+polar_bear_WGS_metadata_final_144.tsv	doi	AUDIT_SOURCE	144	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	published_mapped_depth_x	WORKING	107	144	1	рабочее поле
+polar_bear_WGS_metadata_final_144.tsv	published_depth_source	AUDIT_SOURCE	107	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	later_reanalysis_depth_x	WORKING	43	144	1	рабочее поле
+polar_bear_WGS_metadata_final_144.tsv	ENA_raw_depth_estimate_x	WORKING	144	144	1	предварительная оценка raw depth, не mapped depth
+polar_bear_WGS_metadata_final_144.tsv	depth_evidence_class	WORKING	144	144	1	рабочее поле
+polar_bear_WGS_metadata_final_144.tsv	geographic_region	WORKING	134	144	1	рабочее поле
+polar_bear_WGS_metadata_final_144.tsv	district	WORKING	69	144	1	рабочее поле
+polar_bear_WGS_metadata_final_144.tsv	collection_locality	WORKING	64	144	1	рабочее поле
+polar_bear_WGS_metadata_final_144.tsv	published_group	WORKING	68	144	1	не использовать как генетическую метку для supervised learning
+polar_bear_WGS_metadata_final_144.tsv	published_group_code	WORKING	48	144	1	не использовать как генетическую метку для supervised learning
+polar_bear_WGS_metadata_final_144.tsv	published_group_provenance	WORKING	68	144	1	рабочее поле
+polar_bear_WGS_metadata_final_144.tsv	sex	WORKING	126	144	1	рабочее поле
+polar_bear_WGS_metadata_final_144.tsv	genetic_affinity_exception	WORKING	2	144	1	рабочее поле
+polar_bear_WGS_metadata_final_144.tsv	is_confirmed_cross_biosample_duplicate	WORKING	144	144	1	рабочее поле
+polar_bear_WGS_metadata_final_144.tsv	duplicate_partner_biosample	WORKING	2	144	1	рабочее поле
+polar_bear_WGS_metadata_final_144.tsv	possible_alias_duplicate_group	WORKING	5	144	1	рабочее поле
+polar_bear_WGS_metadata_final_144.tsv	QC_flags	WORKING	49	144	1	рабочее поле
+polar_bear_WGS_metadata_final_144.tsv	source_paper_url	AUDIT_SOURCE	144	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	biosample_url	AUDIT_SOURCE	144	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	notes	AUDIT_SOURCE	139	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	normalized_sex	REDUNDANT_OR_EMPTY	126	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	sex_evidence	AUDIT_SOURCE	144	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	cahill_S2_locality_mapped_depth_x	TECHNICAL_QC	5	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	cahill_S2_candidate_depth_note	AUDIT_SOURCE	7	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	geographic_candidate_group	WORKING	144	144	1	не использовать как генетическую метку для supervised learning
+polar_bear_WGS_metadata_final_144.tsv	geographic_candidate_confidence	WORKING	144	144	1	рабочее поле
+polar_bear_WGS_metadata_final_144.tsv	geographic_candidate_basis	AUDIT_SOURCE	144	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	geographic_candidate_source_url	AUDIT_SOURCE	134	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	geographic_label_usable_for_training	REDUNDANT_OR_EMPTY	144	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	raw_depth_vs_mapped_depth_ratio	TECHNICAL_QC	107	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	raw_vs_mapped_depth_review	TECHNICAL_QC	10	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	metadata_review_priority	WORKING	144	144	1	рабочее поле
+polar_bear_WGS_metadata_final_144.tsv	metadata_review_reason	WORKING	94	144	1	рабочее поле
+polar_bear_WGS_metadata_final_144.tsv	extra_source_urls	AUDIT_SOURCE	8	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	source_verified_sex	AUDIT_SOURCE	120	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	sex_source_ref	AUDIT_SOURCE	120	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	sample_tissue_published	WORKING	23	144	1	рабочее поле
+polar_bear_WGS_metadata_final_144.tsv	miller_published_read_pairs_or_fragments	TECHNICAL_QC	23	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	miller_published_bases_Gb	TECHNICAL_QC	23	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	miller_published_read_layout	TECHNICAL_QC	23	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	liu_collection_id	AUDIT_SOURCE	79	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	liu_sample_institution	AUDIT_SOURCE	79	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	liu_latitude	REDUNDANT_OR_EMPTY	0	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	liu_longitude	REDUNDANT_OR_EMPTY	0	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	liu_raw_data_Gb	TECHNICAL_QC	79	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	liu_mapped_data_Gb	TECHNICAL_QC	79	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	liu_mapped_reads_percent	TECHNICAL_QC	79	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	liu_genome_coverage_percent	TECHNICAL_QC	79	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	liu_S2_row	AUDIT_SOURCE	79	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	laidre_age_class	AUDIT_SOURCE	16	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	laidre_heterozygosity	TECHNICAL_QC	22	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	laidre_ROH_gt2Mb_value_reported	TECHNICAL_QC	22	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	laidre_S7_sample_id	AUDIT_SOURCE	22	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	cahill_candidate_collection_accession	AUDIT_SOURCE	3	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	cahill_candidate_accession_status	AUDIT_SOURCE	3	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	ena_fastq_files_count	TECHNICAL_QC	144	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	ena_fastq_compressed_bytes	TECHNICAL_QC	144	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	ena_fastq_compressed_GiB	TECHNICAL_QC	144	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	ena_manifest_complete	REDUNDANT_OR_EMPTY	144	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	public_metadata_status	REDUNDANT_OR_EMPTY	144	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	source_supplementary_new	AUDIT_SOURCE	144	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	notes_evidence_verified	AUDIT_SOURCE	23	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	ncbi_sra_sample_name	AUDIT_SOURCE	144	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	ncbi_sra_experiments	TECHNICAL_QC	144	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	ncbi_sra_assay_type	REDUNDANT_OR_EMPTY	144	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	ncbi_sra_library_layout	REDUNDANT_OR_EMPTY	144	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	ncbi_sra_library_selection	TECHNICAL_QC	144	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	ncbi_sra_library_names	TECHNICAL_QC	137	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	ncbi_sra_instruments	WORKING	144	144	1	рабочее поле
+polar_bear_WGS_metadata_final_144.tsv	ncbi_sra_platform	REDUNDANT_OR_EMPTY	144	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	ncbi_sra_sequencing_centers	TECHNICAL_QC	144	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	ncbi_sra_total_bases	TECHNICAL_QC	144	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	ncbi_sra_total_download_bytes	TECHNICAL_QC	144	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	ncbi_sra_geographic_location	AUDIT_SOURCE	32	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	ncbi_sra_sex	AUDIT_SOURCE	52	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	ncbi_sra_tissue	TECHNICAL_QC	44	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	ncbi_sra_development_stage	TECHNICAL_QC	22	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	ncbi_sra_collection_date	TECHNICAL_QC	2	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	ncbi_sra_additional_runs_not_in_wgs_manifest	TECHNICAL_QC	15	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	ncbi_sra_additional_run_types	TECHNICAL_QC	15	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	ncbi_sra_metadata_evidence	REDUNDANT_OR_EMPTY	144	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	lan2022_sample_id	AUDIT_SOURCE	43	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	lan2022_collection_id	AUDIT_SOURCE	43	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	lan2022_locality	AUDIT_SOURCE	43	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	lan2022_sex	AUDIT_SOURCE	43	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	lan2022_population_broad_code	AUDIT_SOURCE	43	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	lan2022_mapped_depth_x	TECHNICAL_QC	43	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	lan2022_aligned_reads_percent	TECHNICAL_QC	43	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	lan2022_deduplicated_aligned_reads	TECHNICAL_QC	43	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	lan2022_pcr_duplicate_percent	TECHNICAL_QC	43	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	lan2022_reference_covered_fraction	TECHNICAL_QC	43	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	lan2022_mitogenome_accession	AUDIT_SOURCE	20	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	lan2022_evidence	AUDIT_SOURCE	43	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	wgs_cohort_run_status	REDUNDANT_OR_EMPTY	144	144	0	оставить в исходной таблице; в рабочую не копировать
+polar_bear_WGS_metadata_final_144.tsv	metadata_integrity_review	WORKING	144	144	1	рабочее поле
+ncbi_sra_cohort_WGS_286.tsv	run_accession	WORKING	286	286	1	
+ncbi_sra_cohort_WGS_286.tsv	biosample	WORKING	286	286	1	
+ncbi_sra_cohort_WGS_286.tsv	bioproject	WORKING	286	286	1	
+ncbi_sra_cohort_WGS_286.tsv	sample_name	AUDIT_SOURCE	286	286	0	
+ncbi_sra_cohort_WGS_286.tsv	experiment	WORKING	286	286	1	
+ncbi_sra_cohort_WGS_286.tsv	assay_type	WORKING	286	286	1	
+ncbi_sra_cohort_WGS_286.tsv	organism	WORKING	286	286	1	
+ncbi_sra_cohort_WGS_286.tsv	library_layout	WORKING	286	286	1	
+ncbi_sra_cohort_WGS_286.tsv	library_selection	WORKING	286	286	1	
+ncbi_sra_cohort_WGS_286.tsv	library_source	WORKING	286	286	1	
+ncbi_sra_cohort_WGS_286.tsv	library_name	WORKING	279	286	1	
+ncbi_sra_cohort_WGS_286.tsv	instrument	WORKING	286	286	1	
+ncbi_sra_cohort_WGS_286.tsv	platform	WORKING	286	286	1	
+ncbi_sra_cohort_WGS_286.tsv	bases	WORKING	286	286	1	не является измерением QC прочтений
+ncbi_sra_cohort_WGS_286.tsv	bytes	WORKING	286	286	1	не является измерением QC прочтений
+ncbi_sra_cohort_WGS_286.tsv	geo_loc_name	AUDIT_SOURCE	50	286	0	
+ncbi_sra_cohort_WGS_286.tsv	sex	AUDIT_SOURCE	70	286	0	
+ncbi_sra_cohort_WGS_286.tsv	tissue	AUDIT_SOURCE	62	286	0	
+ncbi_sra_cohort_WGS_286.tsv	dev_stage	AUDIT_SOURCE	22	286	0	
+ncbi_sra_cohort_WGS_286.tsv	collection_date	AUDIT_SOURCE	2	286	0	
+ncbi_sra_cohort_WGS_286.tsv	ncbi_source_csv	AUDIT_SOURCE	286	286	0	
+ncbi_sra_cohort_WGS_286.tsv	original_wgs_manifest	REDUNDANT_OR_EMPTY	286	286	0	
+ncbi_sra_cohort_WGS_286.tsv	in_144_biosample	REDUNDANT_OR_EMPTY	286	286	0	
+ncbi_sra_cohort_WGS_286.tsv	exclusion_reason	REDUNDANT_OR_EMPTY	0	286	0	
+ncbi_sra_runs_all_390.tsv	run_accession	WORKING	390	390	0	
+ncbi_sra_runs_all_390.tsv	biosample	WORKING	390	390	0	
+ncbi_sra_runs_all_390.tsv	bioproject	WORKING	390	390	0	
+ncbi_sra_runs_all_390.tsv	sample_name	AUDIT_SOURCE	390	390	0	
+ncbi_sra_runs_all_390.tsv	experiment	WORKING	390	390	0	
+ncbi_sra_runs_all_390.tsv	assay_type	WORKING	390	390	0	
+ncbi_sra_runs_all_390.tsv	organism	WORKING	390	390	0	
+ncbi_sra_runs_all_390.tsv	library_layout	WORKING	390	390	0	
+ncbi_sra_runs_all_390.tsv	library_selection	WORKING	390	390	0	
+ncbi_sra_runs_all_390.tsv	library_source	WORKING	390	390	0	
+ncbi_sra_runs_all_390.tsv	library_name	WORKING	380	390	0	
+ncbi_sra_runs_all_390.tsv	instrument	WORKING	390	390	0	
+ncbi_sra_runs_all_390.tsv	platform	WORKING	390	390	0	
+ncbi_sra_runs_all_390.tsv	bases	WORKING	390	390	0	не является измерением QC прочтений
+ncbi_sra_runs_all_390.tsv	bytes	WORKING	390	390	0	не является измерением QC прочтений
+ncbi_sra_runs_all_390.tsv	geo_loc_name	AUDIT_SOURCE	84	390	0	
+ncbi_sra_runs_all_390.tsv	sex	AUDIT_SOURCE	99	390	0	
+ncbi_sra_runs_all_390.tsv	tissue	AUDIT_SOURCE	105	390	0	
+ncbi_sra_runs_all_390.tsv	dev_stage	AUDIT_SOURCE	42	390	0	
+ncbi_sra_runs_all_390.tsv	collection_date	AUDIT_SOURCE	10	390	0	
+ncbi_sra_runs_all_390.tsv	ncbi_source_csv	AUDIT_SOURCE	390	390	0	
+ncbi_sra_runs_all_390.tsv	original_wgs_manifest	EXCLUSION_CONTROL	390	390	0	важно для документирования исключённых runs
+ncbi_sra_runs_all_390.tsv	in_144_biosample	EXCLUSION_CONTROL	390	390	0	важно для документирования исключённых runs
+ncbi_sra_runs_all_390.tsv	exclusion_reason	EXCLUSION_CONTROL	104	390	0	важно для документирования исключённых runs
