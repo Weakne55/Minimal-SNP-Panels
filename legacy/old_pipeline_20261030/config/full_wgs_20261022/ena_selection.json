@@ -1,0 +1,122 @@
+{
+  "source": "ENA filereport",
+  "beluga_project": "PRJNA1328577",
+  "samples": [
+    {
+      "sample": "BELUGA_WGS01",
+      "species": "Delphinapterus_leucas",
+      "biosample": "SAMN51337163",
+      "runs": [
+        {
+          "species": "Delphinapterus_leucas",
+          "run": "SRR35396908",
+          "biosample": "SAMN51337163",
+          "experiment": "SRX30479613",
+          "library": "Bel01426_2-3332564_S5_L003",
+          "instrument": "Illumina NovaSeq 6000",
+          "bases": 56181180498,
+          "urls": [
+            "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR353/008/SRR35396908/SRR35396908_1.fastq.gz",
+            "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR353/008/SRR35396908/SRR35396908_2.fastq.gz"
+          ],
+          "md5": [
+            "3a5b38c858b452c039182b03ecfb3099",
+            "2ed7001ff91d58c79e08166ef43b2687"
+          ],
+          "bytes": [
+            14052402574,
+            14659936717
+          ],
+          "study": "PRJNA1328577"
+        }
+      ]
+    },
+    {
+      "sample": "BELUGA_WGS02",
+      "species": "Delphinapterus_leucas",
+      "biosample": "SAMN51337170",
+      "runs": [
+        {
+          "species": "Delphinapterus_leucas",
+          "run": "SRR35396907",
+          "biosample": "SAMN51337170",
+          "experiment": "SRX30479614",
+          "library": "Bel01530_2-3332571_S4_L004",
+          "instrument": "Illumina NovaSeq 6000",
+          "bases": 67118041340,
+          "urls": [
+            "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR353/007/SRR35396907/SRR35396907_1.fastq.gz",
+            "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR353/007/SRR35396907/SRR35396907_2.fastq.gz"
+          ],
+          "md5": [
+            "9c31a7081b9f74cc31945374ccf5ee5d",
+            "fdc107e25c7c1d8d20b2892e4b0e0d29"
+          ],
+          "bytes": [
+            16400530555,
+            16750056003
+          ],
+          "study": "PRJNA1328577"
+        }
+      ]
+    },
+    {
+      "sample": "BEAR_WGS01",
+      "species": "Ursus_maritimus",
+      "biosample": "SAMN16454149",
+      "runs": [
+        {
+          "species": "Ursus_maritimus",
+          "run": "SRR15170741",
+          "biosample": "SAMN16454149",
+          "experiment": "SRX11478087",
+          "library": "D24090_wgs",
+          "instrument": "Illumina NovaSeq 6000",
+          "bases": 46273999200,
+          "urls": [
+            "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR151/041/SRR15170741/SRR15170741_1.fastq.gz",
+            "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR151/041/SRR15170741/SRR15170741_2.fastq.gz"
+          ],
+          "md5": [
+            "de0ef4aa08aaf23446b765e82687856e",
+            "c6af0a7c302372619319f2378bacce77"
+          ],
+          "bytes": [
+            11230842190,
+            11215231067
+          ],
+          "study": "PRJNA669153"
+        }
+      ]
+    },
+    {
+      "sample": "BEAR_WGS02",
+      "species": "Ursus_maritimus",
+      "biosample": "SAMN16454148",
+      "runs": [
+        {
+          "species": "Ursus_maritimus",
+          "run": "SRR15170742",
+          "biosample": "SAMN16454148",
+          "experiment": "SRX11478086",
+          "library": "D24087_wgs",
+          "instrument": "Illumina NovaSeq 6000",
+          "bases": 71894860500,
+          "urls": [
+            "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR151/042/SRR15170742/SRR15170742_1.fastq.gz",
+            "https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR151/042/SRR15170742/SRR15170742_2.fastq.gz"
+          ],
+          "md5": [
+            "28cefdb8ce9ccf0065e9050181e39935",
+            "8762c901ad35ba5da30ec145c97b8b74"
+          ],
+          "bytes": [
+            16622986208,
+            17532490796
+          ],
+          "study": "PRJNA669153"
+        }
+      ]
+    }
+  ]
+}

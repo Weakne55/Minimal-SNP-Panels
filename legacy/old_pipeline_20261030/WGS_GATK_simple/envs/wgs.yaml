@@ -1,0 +1,17 @@
+name: wgs-gatk-mem3
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - python=3.11
+  - pyyaml=6.0
+  - openjdk=17
+  - bwa-mem3=0.15.1
+  - samtools=1.24
+  - bcftools=1.24
+  - gatk4-main=4.7.0.0
+  - mosdepth=0.3.14
+  - fastp=1.4.0
+  - multiqc=1.35
+  - pytest

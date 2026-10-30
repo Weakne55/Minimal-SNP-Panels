@@ -1,122 +1,90 @@
-# Minimal SNP Panels — Beluga & Polar Bear
+# Minimal SNP Panels — новая реализация v0.1
 
-Development and validation of minimal SNP panels for **genetic subpopulation assignment** in:
+Пять модулей: `wgs` → `joint` → `qc` → `structure` → `panels`. Основные пользовательские входы: FASTQ с TSV либо готовый индексированный multi-sample VCF.gz/BCF. gVCF используется только между WGS и joint.
 
-- beluga (*Delphinapterus leucas*);
-- polar bear (*Ursus maritimus*).
+**Статус:** проектный код с офлайн-тестами. Никакого реального end-to-end теста на `sphinx` не было. Не заменяйте им работающую версию и не удаляйте существующие результаты.
 
-**Delivery deadline:** 25 December 2026.  
-**Status of this README:** 20 October 2026.
+## Установка на sphinx
 
-## Objective and scope
-
-The reusable Bash/Python workflow will take **VCF/BCF + `population_labels.tsv`** and produce quality-controlled informative SNP rankings, LD-filtered candidate panels, assignment results, cross-validation metrics and a minimal validated panel for each species.
-
-The current study additionally requires obtaining suitable VCF/BCF from public WGS, checking genetic population structure and assigning/validating population labels. **Population-label inference is a separate study-specific analysis**, not a required operation of the reusable panel-design workflow.
-
-## Current data inventory (20 October 2026)
-
-| Species | Public WGS BioSamples | Selected SRA runs | Metadata status |
-|---|---:|---:|---|
-| Polar bear | 144 | 286 | Sample and run registries curated; independence and genome-level QC remain pending |
-| Beluga | 106 | 106 | Sample and run registries curated; mapped depth and genotype-level QC remain pending |
-
-- **Polar bear:** a confirmed cross-BioSample identity links two records for one animal; additional aliases/relatedness require review. Published population and locality fields are **not** finalized genetic labels.
-- **Beluga:** 78 BioSamples are from `PRJNA1182041` and 28 from `PRJNA1328577`. There are 98 adults and 8 neonates. Estimated raw coverage is at least 15× for 98 samples, including 90 adults, and at least 20× for 60 samples, including 52 adults. These estimates are calculated from SRA base counts, **not** mapped coverage. In `PRJNA1182041`, the SRA assay field is `OTHER`; source publication/project information supports their inclusion as WGS candidates but should be reviewed before processing.
-- **Additional in-house material:** 12 Kara polar bears are within the study scope but **are not included** in the 144 public-BioSample registry or stored here. Add their restricted metadata and genotypes to the analysis only through an approved access route; do not publish them without permission.
-- The Montana et al. (2024) **low-coverage** beluga cohort is not part of this WGS registry.
-
-All numbers above describe metadata records, **not** independently validated individuals or analysis-ready genomes. Reference assemblies, final inclusion thresholds and genetic labels are not fixed yet.
-
-## Repository structure — implemented now
-
-```text
-.
-├── README.md
-├── LICENSE_NOTICE.md
-├── PROJECT_SETUP.md
-├── docs/
-│   ├── ARCHITECTURE.md
-│   ├── GITHUB_SETUP.md
-│   ├── METHODS_DECISIONS.md
-│   └── WORK_PLAN.md
-├── literature/
-│   └── literature_methods.tsv
-└── data/
-    └── metadata/
-        ├── beluga/
-        │   ├── README.md
-        │   ├── metadata_column_classification.tsv
-        │   ├── raw/
-        │   └── curated/
-        └── polar_bear/
-            ├── README.md
-            ├── metadata_column_classification.tsv
-            ├── raw/
-            └── curated/
+```bash
+conda activate wgs-gatk-mem3
+# В исходном conda list присутствуют bwa-mem3 0.15.1, samtools/bcftools 1.24, GATK 4.7.0.0, fastp, mosdepth.
+# Для аналитических модулей дополнительно требуются PLINK 2, scikit-learn, matplotlib.
+conda install -n wgs-gatk-mem3 -c conda-forge -c bioconda plink2 scikit-learn matplotlib
+python -m pip install --no-deps -e .
+./run_pipeline.sh check-tools
 ```
 
-This tree lists the **current tracked project content**, rather than directories planned for later implementation. The preliminary, untracked `sra_inventory_2026-10-13_v2/` directory is superseded by `data/metadata/` and can be removed locally. The GitHub project configuration is documented in `docs/GITHUB_SETUP.md`.
+Не устанавливайте зависимости во время обработки WGS; перед запуском проверьте, что окружение разрешает все зависимости. Изменение существующего Conda-окружения выполняется вручную. Можно создать его копию для проверки совместимости.
 
-## Metadata: authoritative inputs
+### Референсы
 
-| Purpose | Polar bear | Beluga |
-|---|---|---|
-| Selected samples | `data/metadata/polar_bear/curated/polar_bear_samples_working_144.tsv` | `data/metadata/beluga/curated/beluga_samples_working_106.tsv` |
-| Selected sequencing runs | `data/metadata/polar_bear/curated/polar_bear_runs_working_286.tsv` | `data/metadata/beluga/curated/beluga_runs_working_106.tsv` |
-| Full metadata and provenance | `data/metadata/polar_bear/raw/` | `data/metadata/beluga/raw/` |
-| Field definitions and caveats | `data/metadata/polar_bear/README.md` | `data/metadata/beluga/README.md` |
+`inputs/` содержит пустые TSV-шаблоны **только с заголовками**, без выдуманных данных.
 
-One curated **sample** record is keyed by `biosample`; one curated **run** record is keyed by `run_accession`. A BioSample is not automatically an independent animal. Use only the curated run manifests to acquire the selected public WGS runs; full `raw/` SRA tables are for traceability and may include non-cohort runs.
+`config/references.yaml` содержит FASTA и списки аутосом белухи и белого медведя, перенесённые из исходного WGS-архива. Проверьте пути, `.fai`, `.dict`, индексы BWA-MEM3 до запуска:
 
-The sample tables contain source-locality or published group annotations, but **neither species currently has a finalized `population_labels.tsv`**. Do not feed `geographic_candidate_group`, `published_group` or `geographic_group_from_metadata` directly into the classifier as if they were verified genetic populations.
-
-## Planned workflows
-
-### A. Study-specific WGS and population-structure workflow
-
-```text
-Public WGS runs / approved local WGS
-    -> FASTQ acquisition and integrity checks
-    -> species-specific reference mapping
-    -> sorted and indexed BAM/CRAM + QC
-    -> variant calling / joint genotyping
-    -> species-specific VCF/BCF + sample/variant QC
-    -> LD-pruned SNPs for PCA and structure analysis
-    -> checked population_labels.tsv
+```bash
+samtools faidx /path/reference.fna
+gatk CreateSequenceDictionary -R /path/reference.fna
+bwa-mem3 index /path/reference.fna
 ```
 
-### B. Reusable SNP-panel workflow
+**Осторожно:** `bwa-mem3 index` выполните только если индексы ещё не созданы. Не смешивайте индексы разных сборок.
 
-```text
-Species-specific VCF/BCF + checked population_labels.tsv
-    -> QC and genotype harmonization
-    -> train/test split by independent animal
-    -> within-training SNP statistics, ranking and LD filtering
-    -> candidate panels and classifier fitting
-    -> held-out evaluation, with tuning confined to training data
-    -> panel-size/quality curves, per-population metrics
-    -> minimal validated SNP panel
+## Команды
+
+```bash
+# 1. FASTQ → joint BCF → QC → PCA/clustering → SNP panels
+./run_pipeline.sh run --fastq /path/fastq.tsv --species beluga --run-id beluga_001
+
+# 2. Внешний VCF/BCF → QC → PCA/clustering → SNP panels
+./run_pipeline.sh run --vcf /path/cohort.vcf.gz --species beluga --run-id beluga_vcf_001
+
+# 3. Внешний VCF/BCF + метки → QC → панели, без PCA
+./run_pipeline.sh run --vcf /path/cohort.bcf --labels /path/labels.tsv --species beluga --run-id beluga_panel_001
+
+# 4. Только анализ структуры (без автоматического отбора SNP)
+./run_pipeline.sh run --vcf /path/cohort.bcf --mode structure --species beluga --run-id beluga_structure_001
+
+# 5. Только WGS (до per-contig gVCF)
+./run_pipeline.sh wgs --fastq /path/fastq.tsv --species beluga --run-id beluga_wgs_001
+
+# 6. Отдельный joint по уже созданному gvcf_manifest.tsv
+./run_pipeline.sh joint --gvcf-manifest /path/gvcf_manifest.tsv --species beluga --run-id beluga_joint_001
 ```
 
-Selection of markers, LD pruning for the predictive panel and model tuning must be **refitted inside validation folds**. For population labels inferred from the same WGS data, performance must be described as reconstruction of dataset-defined groups unless independently established labels/validation are available.
+Результаты сохраняются в `results/<species>/<run_id>/`, журналы в `<run_id>/logs/`. При повторном запуске неизменного конфигурационного набора используйте `--resume`. Повторный вызов на том же `run_id` без `--resume` завершится ошибкой.
 
-## Implementation status and next milestone
+### SLURM
 
-**Completed:** two-species public WGS metadata inventories, SRA run manifests and metadata documentation.
+Пока один `sbatch` на **весь вызов CLI** (последовательный анализ внутри job), без массивов задач или разбиения по образцам. Это базовая совместимость со SLURM, не масштабируемый HPC-оркестратор.
 
-**Not yet confirmed as completed:** mapping prototype, reference assembly decision, joint-calling pipeline, VCF/BCF, SNP QC, population-label inference, informative SNP selection and classification.
+```bash
+./run_pipeline.sh run --fastq /path/fastq.tsv --species beluga \
+  --run-id beluga_slurm_001 --backend slurm
+squeue -u "$USER"
+```
 
-**Next technical milestone:** run a reproducible FASTQ -> BAM/CRAM -> initial VCF test for at least one sample per species, then extend to joint genotyping and full-cohort SLURM processing. The formal task specification targets **8 November** for the WGS-to-VCF pipeline and **15 November** for population structure/labels; see `docs/WORK_PLAN.md`.
+ID задачи: `results/beluga/beluga_slurm_001/slurm_job_id.txt`. stdout: `logs/slurm_<job_id>.out`. Настраиваем `config/pipeline.yaml -> slurm` (CPU, RAM, partition, walltime). Job запускает тот же Python interpreter из активированного окружения, поэтому SLURM должен экспортировать PATH и переменные окружения.
 
-Planned implementation: Bash orchestration and SLURM scripts, Python for statistics and classifiers; reproducible environment specifications and a Dockerfile are deliverables **to be created**, not files already present. The pipeline may use pre-existing suitable VCF/BCF when their provenance, reference and sample metadata can be verified.
+## Научные ограничения
 
-## Literature and reporting
+* `structure`: PCA по LD-pruned SNP + KMeans и silhouette; это **предварительные** генетические группы. Нужны контроль родства, batch-effects, ancestry/альтернативные методы и ручная проверка перед интерпретацией меток.
+* `panels`: используется Nei-подобная мера дифференциации `(Ht-Hs)/Ht` (не Weir–Cockerham FST), плюс LD filtering по `r²`. Отбор SNP и LD рассчитываются отдельно внутри каждого training fold.
+* При достаточном N сохраняется `nested_cv_metrics.tsv` с подбором размера на внутренних folds. При малых классах файл заменяется `nested_cv_unavailable.txt`.
+* Выбор размера финальной панели по тем же CV без независимого теста не доказывает её внешнюю точность. Если labels получены кластеризацией того же WGS, метрики отражают воспроизведение кластеров, а не географическую валидацию.
+* Нет импутации сложных low-pass genotype likelihoods, sex chromosome-specific ploidy, опубликованных SNP-панелей и независимого inference на новых образцах. Они требуют отдельной проверки перед финальной сдачей.
 
-`literature/literature_methods.tsv` is the **single working evidence table** for population-structure methods, informative SNP selection, published marker sets and validation/benchmarking. The current file contains only its header; a literature review has **not** yet been entered. See `docs/METHODS_DECISIONS.md` for criteria and `docs/WORK_PLAN.md` for milestones.
+## Тестирование
 
-Research results should be produced every week while literature and final reporting proceed in parallel. The contractual task numbering is detailed in `docs/WORK_PLAN.md`.
+```bash
+python -m pytest -q
+bash -n run_pipeline.sh stages/*.sh
+python -m compileall -q src
+```
 
-## Data handling and licensing
+В проекте **нет синтетических генотипов и искусственных биологических наборов данных**. Для реального smoke-test используйте сохранённые gVCF/VCF двух белух и реальные WGS, на отдельном `run_id`.
 
-Do **not** commit raw FASTQ, BAM/CRAM, large VCF/BCF, reference genomes, temporary analysis products, credentials, or unpublished in-house data. Put large files on the authorized HPC filesystem. Only share metadata whose redistribution is permitted; NCBI availability does not itself establish licensing for every associated annotation. See `LICENSE_NOTICE.md` before public redistribution or selecting a code license.
+## Реальный smoke-test
+
+Команды проверки подготовленного VCF белух, независимого joint и SLURM см. `docs/SPHINX_SMOKE_TEST.md`.

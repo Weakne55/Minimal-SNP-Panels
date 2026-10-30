@@ -59,3 +59,21 @@ __pycache__/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Сгенерированные результаты и исходные крупные файлы
+results/
+runs/
+data/full_wgs_*/
+*.fastq
+*.bam
+*.bai
+*.cram
+*.g.vcf.gz
+*.vcf.gz
+*.bcf
+*.csi
+*.tbi
+*.egg-info/
+.minsnp_backups/
+.stage_backups/
+dist/

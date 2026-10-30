@@ -1,0 +1,13 @@
+# Журнал реализации 30.10.2026
+
+1. Создан новый Python-пакет `minsnp`, без копирования старого планировщика задач.
+2. Реализован общий CLI и совместимый со SLURM режим одного задания на запуск.
+3. Реализован FASTQ manifest с несколькими runs/sample, `bwa-mem3`, BAM merge/markdup/QC, HaplotypeCaller по аутосомам.
+4. Реализован per-contig GenomicsDBImport → GenotypeGVCFs → multi-sample BCF, cohort lock.
+5. Реализован независимый Variant QC с нормализацией и пересчётом AC/AN/AF/MAF после genotype masking.
+6. Реализован PLINK2 LD pruning/PCA и предварительное определение кластеров.
+7. Реализован train-fold ranking по Nei-подобному FST, LD selection, classification, обычная CV и nested CV там, где хватает выборки.
+8. Добавлены таблицы, графики, Dockerfile, базовые контрактные тесты и документация.
+9. Выполнены `pytest`, `bash -n`, `compileall`; **не** выполнены реальные GATK/BWA/SLURM end-to-end проверки (бинарников и HPC в локальной среде нет).
+
+Все вычислительные и биологические результаты остаются непроверенными до запуска на sphinx. Никакие реальные исходные данные не изменялись.

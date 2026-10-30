@@ -1,0 +1,68 @@
+samples: config/samples.tsv
+workdir: /mnt/tank/scratch/plem/data/Bogdan/wgs_gatk_simple_test
+references:
+  Delphinapterus_leucas:
+    fasta: /mnt/tank/scratch/plem/data/genomes/Delphinapterus_leucas_GCA_059928025.1/ncbi_dataset/data/GCA_059928025.1/GCA_059928025.1_BTC_Dleu_Yukka2_genomic.fna
+    contigs:
+    - CM187741.1
+    - CM187742.1
+    - CM187743.1
+    - CM187744.1
+    - CM187745.1
+    - CM187746.1
+    - CM187747.1
+    - CM187748.1
+    - CM187749.1
+    - CM187750.1
+    - CM187751.1
+    - CM187752.1
+    - CM187753.1
+    - CM187754.1
+    - CM187755.1
+    - CM187756.1
+    - CM187757.1
+    - CM187758.1
+    - CM187759.1
+    - CM187760.1
+    - CM187761.1
+  Ursus_maritimus:
+    fasta: /mnt/tank/scratch/plem/data/genomes/Ursus_maritimus_GCA_062004589.1/ncbi_dataset/data/GCA_062004589.1/GCA_062004589.1_BTC_Umar_Aika3_genomic.fna
+    contigs:
+    - CM197969.1
+    - CM197970.1
+    - CM197972.1
+    - CM197973.1
+    - CM197974.1
+    - CM197975.1
+    - CM197976.1
+    - CM197977.1
+    - CM197978.1
+    - CM197979.1
+    - CM197980.1
+    - CM197981.1
+    - CM197982.1
+    - CM197983.1
+    - CM197984.1
+    - CM197985.1
+    - CM197986.1
+    - CM197987.1
+    - CM197988.1
+    - CM197989.1
+    - CM197990.1
+    - CM197991.1
+    - CM197992.1
+    - CM197993.1
+    - CM197994.1
+    - CM197995.1
+    - CM197996.1
+    - CM197997.1
+    - CM197998.1
+    - CM197999.1
+    - CM198000.1
+    - CM198001.1
+    - CM198002.1
+    - CM198003.1
+    - CM198004.1
+    - CM198005.1
+slurm:
+  max_array_parallel: 4

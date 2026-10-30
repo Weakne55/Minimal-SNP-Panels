@@ -5,13 +5,16 @@ channels:
   - nodefaults
 dependencies:
   - python=3.11
-  - pyyaml=6.0
-  - openjdk=17
   - bwa-mem3=0.15.1
+  - gatk4-main=4.7.0.0
   - samtools=1.24
   - bcftools=1.24
-  - gatk4=4.6.2.0
-  - mosdepth=0.3.11
-  - fastp=0.24.0
-  - multiqc=1.30
+  - fastp=1.4.0
+  - mosdepth=0.3.14
+  - plink2
+  - numpy
+  - scikit-learn
+  - matplotlib
+  - pyyaml
   - pytest
+  - pip
