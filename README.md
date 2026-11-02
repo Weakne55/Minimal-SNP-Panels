@@ -1,146 +1,82 @@
 # Minimal SNP Panels — Beluga & Polar Bear
 
-Пять модулей: `wgs` → `joint` → `qc` → `structure` → `panels`. Основные пользовательские входы: FASTQ с TSV либо готовый индексированный multi-sample VCF.gz/BCF. gVCF используется только между WGS и joint.
+**Reproducible WGS processing and minimal SNP-panel design for population assignment** in beluga whales (*Delphinapterus leucas*) and polar bears (*Ursus maritimus*).
 
-**Статус:** код и локальные тесты актуализированы; реальный end-to-end FASTQ → VCF на `sphinx` пока не подтверждён.
+Проект разрабатывает два независимых пути:
 
-## Установка и проверка на sphinx
+1. **Подготовка WGS (необязательная для пользователей готового VCF):** paired-end FASTQ → BAM → per-sample/per-autosome gVCF → joint genotyping → multi-sample BCF/VCF.gz.
+2. **Основной анализ:** multi-sample VCF/BCF + `population_labels.tsv` → variant QC → SNP informativeness / LD filtering → candidate panels → classification / cross-validation → минимальная панель среди проверенных размеров.
 
-Основной Git-репозиторий: `Minimal-SNP-Panels` (ветка разработки `develop`).
-Текущее окружение — `wgs-gatk-mem3` с BWA-MEM3, samtools, bcftools,
-GATK4, fastp, mosdepth, PLINK2 и Python 3.11. Не обновляйте инструменты
-посреди активного WGS-запуска.
+
+## Устройство репозитория
+
+```text
+run_pipeline.sh             CLI (Python package src/minsnp/)
+src/minsnp/                 wgs, joint, qc, structure, panels, reporting
+stages/                     Bash: BWA-MEM3, samtools, GATK, bcftools
+config/                     сборки, ресурсы и параметры (YAML)
+inputs/                     TSV-шаблоны и примеры пилота
+data/metadata/              инвентаризация WGS и её описание
+data/wgs/                   локальные FASTQ, не публикуются в Git
+results/                    локальные BAM, gVCF, BCF, логи, не публикуются
+wgs_test/                   вспомогательные инструменты WGS и референсов
+literature/                 обзор литературы и методов
+AGENTS.md                   правила безопасной разработки
+docs/PROJECT_GUIDE.md       техническая документация и история пилота
+```
+
+В уже запущенном пилоте SLURM-скрипты содержат путь **`tools/wgs_pilot.py`**. На сервере необходимо сохранить эту локальную совместимую копию `tools/` до завершения массива и joint jobs. Для будущих запусков из актуального репозитория предназначен `wgs_test/`. Каталог `legacy/` сохранён только локально на сервере.
+
+## Установка
+
+Требуется Linux/HPC, Python >=3.11, Conda, BWA-MEM3, samtools, bcftools, GATK4, fastp (если включён trimming), mosdepth; для структуры — PLINK2. Для запуска на SLURM нужен `sbatch`.
 
 ```bash
-cd /mnt/tank/scratch/plem/data/Bogdan/Minimal-SNP-Panels
+# На sphinx: текущее окружение, не обновлять во время вычислений
 conda activate wgs-gatk-mem3
-python -m pip install --no-deps -e .
 ./run_pipeline.sh check-tools
-python -m pytest -q
+./run_pipeline.sh --help
 bash -n run_pipeline.sh stages/*.sh
 ```
 
-Исходные FASTQ находятся в `data/wgs/`; исходная инвентаризация —
-`data/metadata/WGS_final.xlsx`. Результаты прежних запусков сохраняются
-в `results/`, старый код — в `legacy/`. Отсутствующие скрипты подготовки
-данных и референсов искать в `tools/`.
+Локальные тесты (если каталог `tests/` присутствует на сервере): `PYTHONPATH=src python -m pytest -q`. Тесты исключены из опубликованного Git-дерева по текущему решению о структуре репозитория.
 
 ### Референсы
 
-Список аутосом и пути FASTA задаёт `config/references.yaml`:
+`config/references.yaml` задаёт пути к FASTA и аутосомы каждого вида:
 
-- Белуха: `GCA_059928025.1` (21 аутосома).
-- Белый медведь: `GCA_062004589.1` (36 аутосом).
+| Вид | Сборка | Аутосомы |
+|---|---|---:|
+| Белуха | `GCA_059928025.1` (BTC_Dleu_Yukka2) | 21 |
+| Белый медведь | `GCA_062004589.1` (BTC_Umar_Aika3) | 36 |
 
-До запуска FASTQ → VCF нужны FASTA, `.fai`, GATK sequence dictionary и
-полный индекс BWA-MEM3, включая `<FASTA>.bwt.2bit.64`. **Индекс BWA
-не заменяет индекс BWA-MEM3.** Предыдущая проверка на `sphinx` обнаружила
-отсутствие `.bwt.2bit.64` для обоих видов; повторно проверяйте его перед
-запуском. Подготовка индексов выполняется отдельным заданием с достаточной RAM.
+Для BWA-MEM3 требуется, в частности, индекс `<FASTA>.bwt.2bit.64`; старый индекс BWA-MEM не является его заменой. BWA-MEM3 требует AVX2: на `sphinx` для индексации и картирования пилота использовался `meduza-1`, а не `kraken`.
 
-Пустой `inputs/fastq.template.tsv` — **только шаблон**, а не готовый manifest.
-Один sample может иметь несколько строк для разных sequencing runs.
-Подробности формата — в [`docs/CONTRACTS.md`](docs/CONTRACTS.md).
+## Интерфейс
 
-## Команды запуска
-
-Все примеры выполняются из корня репозитория. Файл `inputs/fastq.tsv`
-нужно **сначала создать** из фактических FASTQ; его нет среди шаблонов.
-Вместо `beluga` допустимо `polar_bear`.
+Выполняйте команды из корня проекта. **Примеры ниже документируют CLI; не отправляйте повторную обработку пилота `pilot_20261030`.**
 
 ```bash
-# 1. Только FASTQ → BAM → per-contig gVCF и gvcf_manifest.tsv
-./run_pipeline.sh wgs --fastq inputs/fastq.tsv --species beluga \
-  --run-id beluga_gvcf_001 --backend slurm --threads 8 --memory 64G
-
-# 2. FASTQ → BAM → gVCF → joint BCF → joint VCF.gz (без variant QC и панелей)
-./run_pipeline.sh wgs-vcf --fastq inputs/fastq.tsv --species beluga \
-  --run-id beluga_vcf_001 --backend slurm --threads 16 --memory 96G
-
-# 3. Только совместное генотипирование из существующего gVCF manifest
-./run_pipeline.sh joint --gvcf-manifest /path/to/gvcf_manifest.tsv \
-  --species beluga --run-id beluga_joint_001 --backend slurm \
+# FASTQ отдельной когорты → BAM + per-autosome gVCF
+./run_pipeline.sh wgs --fastq inputs/beluga_pilot_10.fastq.tsv \
+  --species beluga --run-id my_new_wgs --backend local \
   --threads 8 --memory 64G
 
-# 4. Только QC индексированного multi-sample VCF/BCF
-./run_pipeline.sh qc --vcf /path/to/cohort.raw.bcf --species beluga \
-  --run-id beluga_qc_001 --backend slurm --threads 4 --memory 32G
+# Уже полученные gVCF → многосэмпловый BCF
+./run_pipeline.sh joint --gvcf-manifest /path/to/gvcf_manifest.tsv \
+  --species beluga --run-id my_joint --backend local \
+  --threads 8 --memory 64G
 
-# 5. Полный анализ по FASTQ (WGS, joint, QC, structure, panels)
-./run_pipeline.sh run --fastq inputs/fastq.tsv --species beluga \
-  --run-id beluga_full_001 --backend slurm --threads 16 --memory 96G
+# Готовый multi-sample BCF → variant QC
+./run_pipeline.sh qc --vcf /path/to/cohort.raw.bcf \
+  --species beluga --run-id my_qc --backend local
 
-# 6. Готовый VCF + внешние population labels → QC и панели
-./run_pipeline.sh run --vcf /path/to/cohort.bcf \
-  --labels /path/to/population_labels.tsv --species beluga \
-  --run-id beluga_panels_001 --backend slurm --threads 8 --memory 64G
-
-# 7. Локальная отладка с одним CPU (без отправки в SLURM)
-./run_pipeline.sh wgs-vcf --fastq inputs/fastq.tsv --species beluga \
-  --run-id beluga_local_001 --backend local --threads 1 --memory 48G
+# Основной анализ по VCF/BCF и заранее подготовленным меткам
+./run_pipeline.sh run --vcf /path/to/cohort.raw.bcf \
+  --labels /path/to/population_labels.tsv --mode panels \
+  --species beluga --run-id my_panels --backend local
 ```
 
-**Параметры:** `--threads` — целое число не меньше 1; `--memory` — бюджет RAM,
-например `32G`, `65536M`. Они независимы. По умолчанию используются
-`threads` и `slurm.memory` из `config/pipeline.yaml`. Внутри задания
-учитывается фактическое выделение SLURM. Дополнительные CPU не обязаны
-ускорять все инструменты. Выделение 1 CPU не отменяет требования BWA-MEM3
-к достаточному объёму RAM. Подробнее —
-[`docs/WGS_SLURM_RESOURCES.md`](docs/WGS_SLURM_RESOURCES.md).
+Команды с FASTQ приведены **только как примеры синтаксиса**, не как предложение запускать их на тех же данных. Для нового WGS потребуется отдельный `run-id`, подготовленные FASTQ и референсы; `--threads` для WGS — **не менее 2**. Для отдельного исследования структуры: `./run_pipeline.sh structure --vcf ... --species ... --run-id ...`, но **сначала необходимо исправить `structure.py` и проверить тестами**.
 
-**SLURM:** один `sbatch` на весь вызов (без job arrays); число CPU/RAM
-задаётся `--threads`/`--memory`, partition и time — в `config/pipeline.yaml`.
-
-```bash
-squeue -u "$USER"
-# Подставить полученный job ID
-sacct -j JOB_ID --format=JobID,JobName,State,Elapsed,AllocCPUS,ReqMem,MaxRSS
-```
-
-Результаты: `results/<species>/<run-id>/`; SLURM job ID:
-`results/<species>/<run-id>/slurm_job_id.txt`; логи в `logs/`.
-Для продолжения **того же запуска с теми же входами и ресурсами** применяется
-`--resume`; для новых CPU/RAM, manifest или референса используйте новый `run-id`.
-Не запускайте WGS по пустому TSV-шаблону.
-
-### Основные выходы `wgs-vcf`
-
-```text
-results/beluga/beluga_vcf_001/
-├── wgs/
-│   ├── lanes/                # выравнивания отдельных runs
-│   ├── bam/                  # объединённые BAM и BAM после markdup
-│   ├── qc/                   # flagstat/stats/mosdepth
-│   ├── gvcf/                 # per-sample × per-contig gVCF
-│   └── gvcf_manifest.tsv
-├── joint/
-│   ├── genomicsdb/
-│   ├── per_contig/
-│   ├── cohort.raw.bcf
-│   └── cohort.raw.vcf.gz
-└── logs/
-```
-
-`wgs-vcf` **не** запускает SNP QC, population structure или поиск панелей.
-
-## Научные ограничения
-
-* `structure`: PCA по LD-pruned SNP + KMeans и silhouette; это **предварительные** генетические группы. Нужны контроль родства, batch-effects, ancestry/альтернативные методы и ручная проверка перед интерпретацией меток.
-* `panels`: используется Nei-подобная мера дифференциации `(Ht-Hs)/Ht` (не Weir–Cockerham FST), плюс LD filtering по `r²`. Отбор SNP и LD рассчитываются отдельно внутри каждого training fold.
-* При достаточном N сохраняется `nested_cv_metrics.tsv` с подбором размера на внутренних folds. При малых классах файл заменяется `nested_cv_unavailable.txt`.
-* Выбор размера финальной панели по тем же CV без независимого теста не доказывает её внешнюю точность. Если labels получены кластеризацией того же WGS, метрики отражают воспроизведение кластеров, а не географическую валидацию.
-* Нет импутации сложных low-pass genotype likelihoods, sex chromosome-specific ploidy, опубликованных SNP-панелей и независимого inference на новых образцах. Они требуют отдельной проверки перед финальной сдачей.
-
-## Тестирование
-
-```bash
-python -m pytest -q
-bash -n run_pipeline.sh stages/*.sh
-python -m compileall -q src
-```
-
-В проекте **нет синтетических генотипов и искусственных биологических наборов данных**. Для реального smoke-test используйте сохранённые gVCF/VCF двух белух и реальные WGS, на отдельном `run_id`.
-
-## Реальный smoke-test
-
-Команды проверки подготовленного VCF белух, независимого joint и SLURM см. `docs/SPHINX_SMOKE_TEST.md`.
+**Ограничения на TSV:** FASTQ — `sample_id`, `species`, `run_id`, `library`, `fastq_r1`, `fastq_r2`; labels — `sample_id`, `population` и необязательный `group`. Пути FASTQ относительно расположения TSV; шаблоны без строк не запускаются. Входной VCF/BCF должен быть индексирован, относиться к одному виду/сборке и содержать минимум два образца.

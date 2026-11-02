@@ -1,0 +1,17 @@
+sample_id	species	run_id	library	fastq_r1	fastq_r2
+SAMN01057636	polar_bear	SRR518661	SRX155945	../data/wgs/Ursus_maritimus/SRR518661/SRR518661_1.fastq.gz	../data/wgs/Ursus_maritimus/SRR518661/SRR518661_2.fastq.gz
+SAMN01057636	polar_bear	SRR518662	SRX155945	../data/wgs/Ursus_maritimus/SRR518662/SRR518662_1.fastq.gz	../data/wgs/Ursus_maritimus/SRR518662/SRR518662_2.fastq.gz
+SAMN01057662	polar_bear	SRR518678	SRX155949	../data/wgs/Ursus_maritimus/SRR518678/SRR518678_1.fastq.gz	../data/wgs/Ursus_maritimus/SRR518678/SRR518678_2.fastq.gz
+SAMN02045555	polar_bear	SRR827584	SRX265436	../data/wgs/Ursus_maritimus/SRR827584/SRR827584_1.fastq.gz	../data/wgs/Ursus_maritimus/SRR827584/SRR827584_2.fastq.gz
+SAMN02231734	polar_bear	SRR933757	SRX321858	../data/wgs/Ursus_maritimus/SRR933757/SRR933757_1.fastq.gz	../data/wgs/Ursus_maritimus/SRR933757/SRR933757_2.fastq.gz
+SAMN02231734	polar_bear	SRR933760	SRX321861	../data/wgs/Ursus_maritimus/SRR933760/SRR933760_1.fastq.gz	../data/wgs/Ursus_maritimus/SRR933760/SRR933760_2.fastq.gz
+SAMN02231734	polar_bear	SRR933761	SRX321862	../data/wgs/Ursus_maritimus/SRR933761/SRR933761_1.fastq.gz	../data/wgs/Ursus_maritimus/SRR933761/SRR933761_2.fastq.gz
+SAMN02231734	polar_bear	SRR933762	SRX321863	../data/wgs/Ursus_maritimus/SRR933762/SRR933762_1.fastq.gz	../data/wgs/Ursus_maritimus/SRR933762/SRR933762_2.fastq.gz
+SAMN02261805	polar_bear	SRR942197	SRX327050	../data/wgs/Ursus_maritimus/SRR942197/SRR942197_1.fastq.gz	../data/wgs/Ursus_maritimus/SRR942197/SRR942197_2.fastq.gz
+SAMN02261805	polar_bear	SRR942289	SRX327138	../data/wgs/Ursus_maritimus/SRR942289/SRR942289_1.fastq.gz	../data/wgs/Ursus_maritimus/SRR942289/SRR942289_2.fastq.gz
+SAMN02261805	polar_bear	SRR942297	SRX327146	../data/wgs/Ursus_maritimus/SRR942297/SRR942297_1.fastq.gz	../data/wgs/Ursus_maritimus/SRR942297/SRR942297_2.fastq.gz
+SAMN02261839	polar_bear	SRR942232	SRX327085	../data/wgs/Ursus_maritimus/SRR942232/SRR942232_1.fastq.gz	../data/wgs/Ursus_maritimus/SRR942232/SRR942232_2.fastq.gz
+SAMN16454148	polar_bear	SRR15170742	SRX11478086	../data/wgs/Ursus_maritimus/SRR15170742/SRR15170742_1.fastq.gz	../data/wgs/Ursus_maritimus/SRR15170742/SRR15170742_2.fastq.gz
+SAMN16454149	polar_bear	SRR15170741	SRX11478087	../data/wgs/Ursus_maritimus/SRR15170741/SRR15170741_1.fastq.gz	../data/wgs/Ursus_maritimus/SRR15170741/SRR15170741_2.fastq.gz
+SAMN16454154	polar_bear	SRR15170758	SRX11478070	../data/wgs/Ursus_maritimus/SRR15170758/SRR15170758_1.fastq.gz	../data/wgs/Ursus_maritimus/SRR15170758/SRR15170758_2.fastq.gz
+SAMN25754586	polar_bear	SRR17940146	SRX14098025	../data/wgs/Ursus_maritimus/SRR17940146/SRR17940146_1.fastq.gz	../data/wgs/Ursus_maritimus/SRR17940146/SRR17940146_2.fastq.gz

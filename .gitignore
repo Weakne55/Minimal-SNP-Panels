@@ -46,8 +46,6 @@ __pycache__/
 
 
 # Local data and run configuration
-/data/
-/config/
 /results/
 /WGS_GATK_simple/config/config.yaml
 /WGS_GATK_simple/config/samples.tsv
@@ -80,3 +78,20 @@ dist/
 .patch_backups/
 data/wgs/
 **/genomes_index_*.out
+
+# Curated public metadata only; never commit genomic reads or results.
+/data/*
+!/data/metadata/
+/data/metadata/*
+!/data/metadata/README_metadata.md
+!/data/metadata/WGS_final.xlsx
+/data/wgs/
+/results/
+
+# Server-local history, tests and compatibility tools (never delete locally).
+/legacy/
+/benchmarks/
+/tests/
+/tools/
+*.bak
+*.status.bak
