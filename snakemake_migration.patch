@@ -1,0 +1,1196 @@
+diff --git a/.github/workflows/build-wgs-container.yml b/.github/workflows/build-wgs-container.yml
+new file mode 100644
+index 0000000..f48f776
+--- /dev/null
++++ b/.github/workflows/build-wgs-container.yml
+@@ -0,0 +1,35 @@
++name: Build WGS OCI image for Apptainer
++on:
++  workflow_dispatch:
++  push:
++    branches: [snakemake]
++    paths:
++      - containers/Dockerfile.snakemake
++      - envs/wgs-gatk-mem3.yaml
++      - .github/workflows/build-wgs-container.yml
++permissions:
++  contents: read
++  packages: write
++jobs:
++  build:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++      - name: Normalize image repository name
++        id: image
++        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}-wgs" >> "$GITHUB_OUTPUT"
++      - uses: docker/setup-buildx-action@v3
++      - uses: docker/login-action@v3
++        with:
++          registry: ghcr.io
++          username: ${{ github.actor }}
++          password: ${{ secrets.GITHUB_TOKEN }}
++      - uses: docker/build-push-action@v6
++        with:
++          context: .
++          file: containers/Dockerfile.snakemake
++          platforms: linux/amd64
++          push: true
++          tags: |
++            ${{ steps.image.outputs.name }}:snakemake
++            ${{ steps.image.outputs.name }}:${{ github.sha }}
+diff --git a/.gitignore b/.gitignore
+index 4f7eaf6..445487f 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -91,7 +91,6 @@ data/wgs/
+ # Server-local history, tests and compatibility tools (never delete locally).
+ /legacy/
+ /benchmarks/
+-/tests/
+ /tools/
+ *.bak
+ *.status.bak
+@@ -102,7 +101,6 @@ data/wgs/
+ /results/
+ /legacy/
+ /tools/
+-/tests/
+ __pycache__/
+ .pytest_cache/
+ *.py[cod]
+@@ -125,3 +123,9 @@ __pycache__/
+ *.g.vcf.gz
+ *.g.vcf.gz.tbi
+ /wgs_test/wgs_pilot.py
++
++# Snakemake + Apptainer runtime
++.snakemake/
++*.sif
++*.sif.*
++*.img
+diff --git a/README.md b/README.md
+index 534cf2a..209f24a 100644
+--- a/README.md
++++ b/README.md
+@@ -4,6 +4,22 @@
+ 
+ Основная идея — разделить получение генотипов и их популяционно-генетический анализ. В качестве исходных данных можно использовать FASTQ либо уже подготовленный многосэмпловый VCF/BCF.
+ 
++> **Ветка `snakemake` (WGS → VCF/BCF).** Новый оркестратор — Snakemake 9 + Apptainer/Singularity; вычислительные стадии `stages/*.sh` сохранены. Создайте Snakemake-окружение из `envs/snakemake.yaml`, получите OCI/SIF-образ по инструкции `docs/SNAKEMAKE_SINGULARITY.md`, затем выполните пилот:
++>
++> ```bash
++> python scripts/run_snakemake.py --fastq inputs/beluga_two.fastq.tsv inputs/polar_bear_two.fastq.tsv \
++>   --run-id snakemake_pilot_001 --backend slurm --bind /mnt/tank
++> # Если dry-run корректен и SIF подготовлен:
++> python scripts/run_snakemake.py --fastq inputs/beluga_two.fastq.tsv inputs/polar_bear_two.fastq.tsv \
++>   --run-id snakemake_pilot_001 --backend slurm --bind /mnt/tank --jobs 3 --submit
++> ```
++>
++> Новый интерфейс **не требует** `pipeline.py`; этот файл и нижеописанный Bash/Python/SLURM backend оставлены для совместимости и сравнения. Научные модули PCA / SNP-панелей всё ещё не подключены к рабочему CLI исходного snapshot. Полная инструкция: [Snakemake + Singularity](docs/SNAKEMAKE_SINGULARITY.md).
++
++---
++
++## Архивный Bash/Python/SLURM-интерфейс (ветка `develop`)
++
+ ## Возможности
+ 
+ Pipeline предусматривает три независимых сценария:
+diff --git a/config/snakemake.yaml b/config/snakemake.yaml
+new file mode 100644
+index 0000000..8228e5c
+--- /dev/null
++++ b/config/snakemake.yaml
+@@ -0,0 +1,37 @@
++# Example workflow settings. Override paths and run_id via --config or wrapper.
++run_id: pilot_snakemake
++outdir: results
++manifests:
++  - inputs/beluga_two.fastq.tsv
++  - inputs/polar_bear_two.fastq.tsv
++references: config/references.yaml
++pipeline_settings: config/pipeline.yaml
++
++# Absolute .sif path is recommended in production. Must be available to every node.
++# First build/pull the image as described in docs/SNAKEMAKE_SINGULARITY.md.
++container_image: containers/wgs-gatk-mem3.sif
++
++# Original pipeline's fastp step is disabled unless enabled below.
++trim_fastq: false
++# Additional technical filtering is optional (not required for raw cohort VCF).
++variant_qc: false
++qc:
++  min_dp: 8
++  min_gq: 20
++  max_missing: 0.1
++  min_maf: 0.01
++
++# Each Snakemake rule is a separate SLURM job. Fine tune these per rule.
++# If omitted, values are inherited from slurm.sample / slurm.joint in pipeline_settings.
++stage_resources:
++  trim:           {threads: 8,  mem_mb: 16000, runtime: 240}
++  align:          {threads: 16, mem_mb: 64000, runtime: 2880}
++  merge_bam:      {threads: 8,  mem_mb: 16000, runtime: 300}
++  markdup:        {threads: 8,  mem_mb: 32000, runtime: 420}
++  bam_qc:         {threads: 4,  mem_mb: 8000,  runtime: 360}
++  haplotypecaller: {threads: 8,  mem_mb: 32000, runtime: 1440}
++  genomicsdb:     {threads: 8,  mem_mb: 48000, runtime: 1440}
++  genotype:       {threads: 8,  mem_mb: 32000, runtime: 1440}
++  concat:         {threads: 4,  mem_mb: 8000,  runtime: 240}
++  export_vcf:     {threads: 4,  mem_mb: 8000,  runtime: 240}
++  variant_qc:     {threads: 4,  mem_mb: 16000, runtime: 480}
+diff --git a/containers/Dockerfile.snakemake b/containers/Dockerfile.snakemake
+new file mode 100644
+index 0000000..16e5555
+--- /dev/null
++++ b/containers/Dockerfile.snakemake
+@@ -0,0 +1,10 @@
++# OCI image for execution by Apptainer/Singularity. Build using Docker/Podman or CI,
++# then `apptainer pull ... docker://<registry>/<image>:<tag>` without fakeroot.
++FROM mambaorg/micromamba:2.9.0
++COPY --chown=$MAMBA_USER:$MAMBA_USER envs/wgs-gatk-mem3.yaml /tmp/environment.yaml
++RUN micromamba create --yes --file /tmp/environment.yaml && \
++    micromamba clean --all --yes
++# apptainer exec does not run the Docker ENTRYPOINT: binaries must be on PATH.
++ENV PATH=/opt/conda/envs/wgs-gatk-mem3/bin:$PATH
++ENV MAMBA_ROOT_PREFIX=/opt/conda
++WORKDIR /work
+diff --git a/docs/SNAKEMAKE_SINGULARITY.md b/docs/SNAKEMAKE_SINGULARITY.md
+new file mode 100644
+index 0000000..b20acb4
+--- /dev/null
++++ b/docs/SNAKEMAKE_SINGULARITY.md
+@@ -0,0 +1,172 @@
++# Ветка `snakemake`: перенос WGS на Snakemake + Singularity/Apptainer
++
++## Что реализовано
++
++- `FASTQ TSV` (оба вида, несколько runs на animal) → **fastp (опционально)** → **BWA-MEM3 + samtools** → run BAM → merge → markdup BAM/BAI → `samtools`/`mosdepth` QC → **GATK HaplotypeCaller** для каждой аутосомы → отдельные gVCF/CSI.
++- По каждому `species × contig`: sample map → **GATK GenomicsDBImport** → **GenotypeGVCFs** → индексированный VCF.gz.
++- По каждому виду: **bcftools concat** → `cohort.raw.bcf`/CSI → `cohort.raw.vcf.gz`/CSI.
++- Опционально: технический variant QC через существующий `stages/qc.sh` (`variant_qc: true`), выход `qc/<species>/filtered.bcf`/CSI и `bcftools.stats.txt`.
++
++Исходные Bash-стадии **не переписаны по алгоритму**. Перенесены оркестрация, параллельность, зависимости, повторный запуск и контейнерный runtime. Каждый `sample × contig` становится независимым заданием Snakemake. В отличие от старого `slurm_wgs.py`, это **не один job-array с последовательными хромосомами**.
++
++Структура по существу соответствует исходному WGS-пайплайну: разработка генетических меток и минимальных SNP-панелей не подключена к CLI исходного snapshot; `structure.py` содержит недостижимый код. Не следует трактовать этот перенос как научно валидированную реализацию PCA, классификации или nested CV. Эти блоки требуют отдельной ревизии.
++
++## 1. Создать ветку на сервере
++
++```bash
++git fetch origin
++git switch develop
++git pull --ff-only origin develop
++git switch -c snakemake
++# Применить предоставленный snakemake_migration.patch:
++git apply /path/to/snakemake_migration.patch
++# Контроль:
++git status --short
++```
++
++Если `snakemake` существует на сервере, можно использовать `git switch snakemake` и `git pull` вместо создания новой ветки. Сохраните незакоммиченные изменения перед переключением. После проверок `git add`, `git commit`, `git push -u origin snakemake`. Исходная `develop` не изменяется.
++
++## 2. Установить *только* Snakemake-оркестратор на login-узле
++
++```bash
++conda env create -f envs/snakemake.yaml
++conda activate minsnp-snakemake
++snakemake --version
++which singularity || which apptainer
++```
++
++Вся тяжёлая биоинформатика исполняется **внутри контейнера**; Snakemake в установленном на login-узле окружении только составляет DAG и отправляет задания через SLURM. Не нужен `fakeroot`, не нужно собирать контейнер на вычислительном узле.
++
++## 3. Сформировать контейнер без fakeroot на HPC
++
++В репозитории `containers/Dockerfile.snakemake` (на базе существующего `envs/wgs-gatk-mem3.yaml`). Важно: в отличие от прежнего `Dockerfile`, он добавляет все бинарные файлы окружения в системный `PATH`: `apptainer exec` **не** запускает Docker entrypoint.
++
++**Предпочтительно — через GitHub Actions.** Ветка `snakemake` содержит `.github/workflows/build-wgs-container.yml`. Workflow собирает и публикует OCI-образ:
++
++```text
++ghcr.io/weakne55/minimal-snp-panels-wgs:snakemake
++```
++
++После первого успешного workflow и при доступности образа из кластера:
++
++```bash
++bash scripts/pull_sif.sh \
++  docker://ghcr.io/weakne55/minimal-snp-panels-wgs:snakemake \
++  containers/wgs-gatk-mem3.sif
++```
++
++**Альтернативно**, если имеется Docker/Podman на отдельном компьютере с доступом к интернету и OCI registry:
++
++```bash
++docker build -f containers/Dockerfile.snakemake -t ghcr.io/weakne55/minimal-snp-panels-wgs:snakemake .
++docker push ghcr.io/weakne55/minimal-snp-panels-wgs:snakemake
++# На HPC выполнить scripts/pull_sif.sh из примера выше.
++```
++
++Если GHCR-образ приватный, перед `pull` потребуется авторизация (`apptainer registry login` / `singularity remote login` согласно конфигурации). При закрытом доступе HPC к сети SIF можно собрать на другой машине и передать на сервер по `scp`. Не запускайте `singularity build` из `.def` с `--fakeroot` на кластере, если нет настроенных `subuid/subgid`.
++
++**Проверить SIF:**
++
++```bash
++singularity exec containers/wgs-gatk-mem3.sif sh -c \
++  'command -v bwa-mem3 && command -v samtools && command -v gatk && command -v bcftools && command -v mosdepth'
++```
++
++Для reproducibility предпочтительно указывать **тег с Git SHA или immutable digest**, а не `:snakemake`. Можно передать собственный SIF через `--image /path/to/<sha>.sif`. Существование образа и успешную загрузку нельзя считать подтверждёнными до реальной проверки на кластере.
++
++## 4. Параметры данных и ресурсов
++
++`config/snakemake.yaml` управляет `run_id`, TSV-манифестами, входными конфигами, SIF-путём, включением `fastp`/QC и ресурсами отдельных правил. `config/references.yaml` и `config/pipeline.yaml` сохраняют прежнюю семантику сборок, путей и базовых ресурсов.
++
++Для полного референса ожидаются: FASTA, `.fai`, `.dict` (с заменённым суффиксом FASTA), BWA-MEM3 индексы `.amb`, `.ann`, `.pac`, `.bwt.2bit.64`. Они уже могут быть подготовлены старым pipeline. Автоматическая перестройка индексов на HPC не включена намеренно, чтобы не запустить дорогостоящую задачу без согласования.
++
++**Внешние FASTQ и референсы находятся вне корня репозитория.** При выполнении через Apptainer нужно явно сделать их доступными из контейнера. Пример для путей `/mnt/tank`:
++
++```bash
++--bind /mnt/tank
++```
++
++В wrapper это преобразуется в `--apptainer-args '--bind /mnt/tank:/mnt/tank'`. Для путей на других файловых системах добавьте `--bind` повторно. На кластере должен быть общий доступ к `.sif`, референсам и outputs со всех SLURM-узлов.
++
++### Первый dry-run (не отправляет задания)
++
++```bash
++python scripts/run_snakemake.py \
++  --fastq inputs/beluga_two.fastq.tsv inputs/polar_bear_two.fastq.tsv \
++  --run-id snakemake_pilot_001 \
++  --backend slurm --bind /mnt/tank
++```
++
++Если хотите протестировать на одном образце — создайте небольшой FASTQ TSV со строками только выбранного животного (манифесты `*_two.fastq.tsv` содержат **по два животных**, не один).
++
++### Реальный пилот на SLURM
++
++```bash
++python scripts/run_snakemake.py \
++  --fastq inputs/beluga_two.fastq.tsv inputs/polar_bear_two.fastq.tsv \
++  --run-id snakemake_pilot_001 \
++  --backend slurm --jobs 3 --bind /mnt/tank --submit
++```
++
++Локальный запуск:
++
++```bash
++python scripts/run_snakemake.py --fastq inputs/beluga_two.fastq.tsv \
++  --run-id local_trial --backend local --cores 8 --bind /mnt/tank --submit
++```
++
++При необходимости вызвать Snakemake напрямую:
++
++```bash
++snakemake -s workflow/Snakefile --configfile config/snakemake.yaml \
++  --profile profiles/slurm --dry-run
++```
++
++Параметры `--submit` и `--dry-run` wrapper — **не** команда `sbatch`: wrapper передаёт управление `snakemake`. Повторное выполнение той же команды `--submit` после ошибки возобновляет незавершённые правила. `--rerun-incomplete` включён в профили. Запускайте только одну Snakemake-инстанцию на `run_id` одновременно.
++
++### SLURM и ограничения параллельности
++
++`profiles/slurm/config.yaml`: `executor: slurm`, `jobs: 6`, `slurm_partition: main`, `slurm_extra: --nodelist=meduza-1` (запланированный AVX2-узел для BWA-MEM3). Проверьте `sinfo`, `scontrol show node meduza-1`; если нода недоступна или узкое место по RAM — поправьте профиль. В разных правилах из `config/snakemake.yaml` можно изменять `threads`, `mem_mb` и `runtime` (минуты). **В отличие от старого массива `max_parallel_samples: 3`, ограничение задаёт `--jobs`, а не число животных**. Например, `--jobs 3` допускает до трёх одновременных заданий любой стадии.
++
++Здесь BWA-MEM3 и `samtools` идут в одном конвейере и уже ограничивают потоки и сортировку по выделенной RAM. GATK `-Xmx` ограничен через `MIN_SNP_MEMORY_MB`. Каждая аутосома имеет отдельное время и лимит, из-за чего можно эффективно перераспределять ресурсы между видами.
++
++## 5. Результаты
++
++```text
++results/<run-id>/
++├── cohort.lock.json                  # фиксирует cohort + конфигурацию
++├── software_versions.json            # версии инструментов из контейнера
++├── manifests/<species>/gvcf_manifest.tsv
++├── samples/<species>/<sample>/wgs/
++│   ├── lanes/<run>/<library>/fixed.bam
++│   ├── bam/<sample>.merged.bam, <sample>.bam(.bai)
++│   ├── qc/<sample>.flagstat.txt, .stats.txt, .mosdepth.summary.txt
++│   └── gvcf/<sample>/<contig>.g.vcf.gz(.csi)
++├── joint/<species>/
++│   ├── sample_maps/<contig>.tsv
++│   ├── genomicsdb/<contig>/
++│   ├── per_contig/<contig>.vcf.gz(.csi)
++│   ├── cohort.raw.bcf(.csi)
++│   └── cohort.raw.vcf.gz(.csi)
++├── qc/<species>/filtered.bcf(.csi)   # если variant_qc: true
++└── logs/
++```
++
++Задачи внутри каждого вида разделены по аутосомам. Порядок contigs при `bcftools concat` точно такой, как в `config/references.yaml`. При изменении cohorts, references.yaml или pipeline.yaml для существующего `run-id` preflight выдаёт ошибку вместо тихой замены cohort. Входные FASTQ контролируются по размеру и `mtime`, не по полной хеш-сумме.
++
++## 6. Проверки и известные ограничения
++
++```bash
++PYTHONPATH=src python -m pytest -q
++for f in stages/*.sh scripts/pull_sif.sh; do bash -n "$f"; done
++python scripts/run_snakemake.py --help
++# После получения SIF:
++python scripts/run_snakemake.py --run-id dryrun_001 --backend slurm --bind /mnt/tank
++```
++
++- **Dry-run и модульные тесты не равнозначны сквозному WGS-run.** Нужен пилот FASTQ → BAM → gVCF → GenomicsDB → multi-sample BCF/VCF с проверкой заголовков и индексов.
++- Стадия `stages/qc.sh` сохранена из архивной версии и требует научной проверки порогов (особенно для небольшой когорты и low-coverage WGS); `variant_qc: false` по умолчанию.
++- Существующие `stages/align.sh`, `merge_bam.sh`, `markdup.sh`, `concat.sh`, `export_vcf.sh` запрещают перезаписывать корректно существующие outputs. При изменении кода, входов или параметров уже завершённого запуска используйте **новый `run-id`**. Для продолжения **прерванных** задач без изменения конфигурации используйте тот же `run-id`; Snakemake заново построит только недостающие outputs.
++- Результаты VCF/BCF сами по себе **не** означают надёжного определения подпопуляций или валидной SNP-панели.
++- Подгрузка OCI с `docker://` требует доступного реестра; SIF предпочтительнее для разделённой HPC-среды. Состав референсных индексов должен совпадать с FASTA.
++- В контейнере GATK GenomicsDB может создавать native-memory/temporary нагрузку сверх `Xmx`. Проверяйте `sacct`/`seff` и меняйте `mem_mb` после пилота.
+diff --git a/envs/snakemake.yaml b/envs/snakemake.yaml
+new file mode 100644
+index 0000000..91879f0
+--- /dev/null
++++ b/envs/snakemake.yaml
+@@ -0,0 +1,11 @@
++name: minsnp-snakemake
++channels:
++  - conda-forge
++  - bioconda
++  - nodefaults
++dependencies:
++  - python=3.11
++  - snakemake>=9,<10
++  - snakemake-executor-plugin-slurm
++  - pyyaml>=6
++  - pytest>=8
+diff --git a/profiles/local/config.yaml b/profiles/local/config.yaml
+new file mode 100644
+index 0000000..a179c9a
+--- /dev/null
++++ b/profiles/local/config.yaml
+@@ -0,0 +1,7 @@
++# Snakemake orchestration runs on the host; tools run via Apptainer.
++executor: local
++cores: 16
++use-apptainer: true
++rerun-incomplete: true
++printshellcmds: true
++latency-wait: 60
+diff --git a/profiles/slurm/config.yaml b/profiles/slurm/config.yaml
+new file mode 100644
+index 0000000..2d4845c
+--- /dev/null
++++ b/profiles/slurm/config.yaml
+@@ -0,0 +1,13 @@
++# Tune for your cluster. In particular, meduza-1 must expose AVX2 for BWA-MEM3.
++executor: slurm
++jobs: 6
++local-cores: 1
++use-apptainer: true
++rerun-incomplete: true
++printshellcmds: true
++latency-wait: 120
++keep-going: true
++slurm-no-account: true
++default-resources:
++  slurm_partition: main
++  slurm_extra: "--nodelist=meduza-1"
+diff --git a/scripts/pull_sif.sh b/scripts/pull_sif.sh
+new file mode 100755
+index 0000000..74c64fc
+--- /dev/null
++++ b/scripts/pull_sif.sh
+@@ -0,0 +1,13 @@
++#!/usr/bin/env bash
++# Usage: bash scripts/pull_sif.sh docker://ghcr.io/weakne55/minimal-snp-panels-wgs:snakemake [output.sif]
++set -euo pipefail
++image=${1:?Usage: pull_sif.sh OCI_URI [OUTPUT.sif]}
++output=${2:-containers/wgs-gatk-mem3.sif}
++if command -v apptainer >/dev/null; then runtime=apptainer
++elif command -v singularity >/dev/null; then runtime=singularity
++else echo 'Не найден apptainer или singularity' >&2; exit 1
++fi
++mkdir -p "$(dirname "$output")"
++# pull of a pre-built OCI image: no fakeroot / setuid root build is necessary.
++"$runtime" pull --force "$output" "$image"
++"$runtime" exec "$output" sh -c 'set -e; command -v bwa-mem3; command -v gatk; command -v bcftools; command -v samtools'
+diff --git a/scripts/run_snakemake.py b/scripts/run_snakemake.py
+new file mode 100755
+index 0000000..e2fc60c
+--- /dev/null
++++ b/scripts/run_snakemake.py
+@@ -0,0 +1,76 @@
++#!/usr/bin/env python3
++"""Convenient dry-run-first launcher for workflow/Snakefile.
++
++Only orchestrator dependencies (Snakemake, PyYAML) are required on the host.
++All bioinformatics tools are executed via the configured Apptainer/Singularity image.
++"""
++from __future__ import annotations
++
++import argparse
++import json
++from pathlib import Path
++import shlex
++import subprocess
++import sys
++
++ROOT = Path(__file__).resolve().parents[1]
++sys.path.insert(0, str(ROOT / "src"))
++from minsnp.core import identifier
++
++
++def command(args: argparse.Namespace) -> list[str]:
++    cmd = ["snakemake", "--snakefile", "workflow/Snakefile", "--configfile", "config/snakemake.yaml",
++           "--profile", f"profiles/{args.backend}"]
++    overrides: list[str] = []
++    if args.run_id:
++        overrides.append("run_id=" + identifier(args.run_id))
++    if args.fastq:
++        manifests = [str(Path(item).expanduser().resolve()) for item in args.fastq]
++        overrides.append("manifests=" + json.dumps(manifests, separators=(",", ":")))
++    if args.image:
++        overrides.append("container_image=" + str(Path(args.image).expanduser().resolve())
++                         if not args.image.startswith(("docker://", "oras://", "library://"))
++                         else "container_image=" + args.image)
++    if args.trim:
++        overrides.append("trim_fastq=true")
++    if args.qc:
++        overrides.append("variant_qc=true")
++    if overrides:
++        cmd += ["--config", *overrides]
++    if args.jobs is not None:
++        cmd += ["--jobs", str(args.jobs)]
++    if args.cores is not None:
++        cmd += ["--cores", str(args.cores)]
++    if args.bind:
++        binds = ",".join(f"{Path(d).expanduser().resolve()}:{Path(d).expanduser().resolve()}" for d in args.bind)
++        cmd += ["--apptainer-args", f"--bind {binds}"]
++    if not args.submit:
++        cmd += ["--dry-run"]
++    cmd += ["--show-failed-logs"]
++    return cmd
++
++
++def main(argv: list[str] | None = None) -> int:
++    parser = argparse.ArgumentParser(description="Snakemake + Apptainer WGS workflow (dry-run by default)")
++    parser.add_argument("--fastq", nargs="+", metavar="TSV", help="FASTQ manifests from one or both species")
++    parser.add_argument("--run-id", help="Output run ID, default from config/snakemake.yaml")
++    parser.add_argument("--backend", choices=["local", "slurm"], default="slurm")
++    parser.add_argument("--image", help="Absolute pre-built SIF path or docker:// OCI reference")
++    parser.add_argument("--bind", action="append", metavar="DIR", help="External host root, e.g. /mnt/tank (can repeat)")
++    parser.add_argument("--trim", action="store_true", help="Enable fastp trimming")
++    parser.add_argument("--qc", action="store_true", help="Run technical variant QC after joint genotyping")
++    parser.add_argument("--jobs", type=int, help="Max concurrent SLURM jobs")
++    parser.add_argument("--cores", type=int, help="Local core limit")
++    parser.add_argument("--submit", action="store_true", help="Actually execute (default only dry-run)")
++    args = parser.parse_args(argv)
++    cmd = command(args)
++    print("$ " + shlex.join(cmd), flush=True)
++    try:
++        return subprocess.run(cmd, cwd=ROOT, check=False).returncode
++    except FileNotFoundError:
++        print("Snakemake not found. Install envs/snakemake.yaml first.", file=sys.stderr)
++        return 127
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/tests/test_snakemake_migration.py b/tests/test_snakemake_migration.py
+new file mode 100644
+index 0000000..955d834
+--- /dev/null
++++ b/tests/test_snakemake_migration.py
+@@ -0,0 +1,74 @@
++"""Snakemake migration contracts, independent of a cluster and large FASTQ data."""
++from __future__ import annotations
++
++import argparse
++import importlib.util
++import json
++from pathlib import Path
++
++import yaml
++
++ROOT = Path(__file__).resolve().parents[1]
++
++
++def launcher():
++    spec = importlib.util.spec_from_file_location("minsnp_snakemake_launcher", ROOT / "scripts/run_snakemake.py")
++    module = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(module)
++    return module
++
++
++def args(**updates):
++    values = dict(run_id="test_20261102", fastq=["inputs/fastq.template.tsv"],
++                  backend="slurm", image=None, bind=["/mnt/tank"], trim=False, qc=False,
++                  jobs=3, cores=None, submit=False)
++    values.update(updates)
++    return argparse.Namespace(**values)
++
++
++def test_launcher_dry_run_and_manifests():
++    cmd = launcher().command(args())
++    assert cmd[0] == "snakemake"
++    assert "--dry-run" in cmd
++    assert "--profile" in cmd
++    assert "profiles/slurm" in cmd
++    assert "--apptainer-args" in cmd
++    assert "--bind /mnt/tank:/mnt/tank" in cmd
++    assert "--jobs" in cmd
++    value = next(item for item in cmd if item.startswith("manifests="))
++    parsed = json.loads(value.partition("=")[2])
++    assert parsed == [str((Path.cwd() / "inputs/fastq.template.tsv").resolve())]
++
++
++def test_launcher_submit_and_optional_settings():
++    cmd = launcher().command(args(submit=True, trim=True, qc=True, backend="local", bind=[]))
++    assert "--dry-run" not in cmd
++    assert "profiles/local" in cmd
++    assert "trim_fastq=true" in cmd
++    assert "variant_qc=true" in cmd
++
++
++def test_configs_and_rules_present():
++    workflow = (ROOT / "workflow/Snakefile").read_text()
++    cfg = yaml.safe_load((ROOT / "config/snakemake.yaml").read_text())
++    for rule in ("preflight", "trim", "align", "merge_bam", "markdup", "bam_qc",
++                 "haplotypecaller", "sample_map", "genomicsdb", "genotype", "concat",
++                 "export_vcf", "validate_cohort", "software_versions", "variant_qc", "variant_qc_stats", "all"):
++        assert f"rule {rule}:" in workflow
++    assert "container: IMAGE" in workflow
++    assert "cohort.lock.json" in workflow
++    assert cfg["variant_qc"] is False
++    assert cfg["container_image"].endswith(".sif")
++    for stage, resources in cfg["stage_resources"].items():
++        assert min(resources["threads"], resources["mem_mb"], resources["runtime"]) >= 1, stage
++    profile = yaml.safe_load((ROOT / "profiles/slurm/config.yaml").read_text())
++    assert profile["executor"] == "slurm"
++    assert profile["use-apptainer"] is True
++    assert "--nodelist" in profile["default-resources"]["slurm_extra"]
++
++
++def test_container_has_explicit_path_for_singularity_exec():
++    dockerfile = (ROOT / "containers/Dockerfile.snakemake").read_text()
++    assert "ENV PATH=/opt/conda/envs/wgs-gatk-mem3/bin:$PATH" in dockerfile
++    assert "envs/wgs-gatk-mem3.yaml" in dockerfile
++    assert "ENTRYPOINT" not in "\n".join(line for line in dockerfile.splitlines() if not line.startswith("#"))
+diff --git a/workflow/Snakefile b/workflow/Snakefile
+new file mode 100644
+index 0000000..22a9e90
+--- /dev/null
++++ b/workflow/Snakefile
+@@ -0,0 +1,519 @@
++"""WGS -> multi-sample VCF/BCF with Snakemake and Apptainer (Singularity).
++
++    snakemake -s workflow/Snakefile --configfile config/snakemake.yaml --dry-run
++
++Per-lane and per-contig jobs preserve the existing project's Bash/GATK semantics.
++The population structure and SNP-panel CLI remain deliberately unimplemented in
++this migration; never manufacture population labels or classification metrics.
++"""
++from __future__ import annotations
++
++import hashlib
++import json
++import math
++import os
++from pathlib import Path
++import sys
++
++import yaml
++
++ROOT = Path(workflow.basedir).parent.resolve()
++sys.path.insert(0, str(ROOT / "src"))
++from minsnp.core import identifier
++from minsnp.resources import memory_mib, validate_resources
++from minsnp.wgs import load_cohort
++
++configfile: str(ROOT / "config" / "snakemake.yaml")
++
++RUN_ID = identifier(str(config.get("run_id", "")))
++OUTDIR = str(config.get("outdir", "results")).rstrip("/")
++OUT = f"{OUTDIR}/{RUN_ID}"
++MANIFESTS = config.get("manifests", [])
++if isinstance(MANIFESTS, str):
++    # --config 'manifests=["a.tsv","b.tsv"]' is normally YAML-decoded into a list.
++    MANIFESTS = [MANIFESTS]
++if not isinstance(MANIFESTS, list) or not MANIFESTS:
++    raise ValueError("Set manifests: [path1.tsv, path2.tsv] in config/snakemake.yaml")
++MANIFESTS = [str(Path(x).expanduser().resolve()) for x in MANIFESTS]
++
++REFS_FILE = Path(str(config.get("references", "config/references.yaml"))).expanduser().resolve()
++SETTINGS_FILE = Path(str(config.get("pipeline_settings", "config/pipeline.yaml"))).expanduser().resolve()
++REFS_YAML = yaml.safe_load(REFS_FILE.read_text(encoding="utf-8"))
++SETTINGS = yaml.safe_load(SETTINGS_FILE.read_text(encoding="utf-8"))
++validate_resources(SETTINGS)
++COHORT = load_cohort(MANIFESTS)
++REFS = REFS_YAML["species"]
++if not set(COHORT).issubset(REFS):
++    raise ValueError(f"No reference for species: {set(COHORT) - set(REFS)}")
++if not set(COHORT).issubset({"beluga", "polar_bear"}):
++    raise ValueError(f"Unexpected species: {set(COHORT) - {'beluga','polar_bear'}}")
++SPECIES = sorted(COHORT)
++SAMPLES = {sp: sorted(COHORT[sp]) for sp in SPECIES}
++UNITS = {}
++for species, samples in COHORT.items():
++    for sample, rows in samples.items():
++        for row in rows:
++            UNITS[(species, sample, row["run_id"], row["library"])] = row
++
++for species in SPECIES:
++    spec = REFS[species]
++    if not isinstance(spec.get("contigs"), list) or not spec["contigs"] or len(set(spec["contigs"])) != len(spec["contigs"]):
++        raise ValueError(f"Missing/duplicate contigs for {species}")
++    spec["fasta"] = str(Path(spec["fasta"]).expanduser().resolve())
++CONTIGS = {sp: REFS[sp]["contigs"] for sp in SPECIES}
++TRIM = bool(config.get("trim_fastq", SETTINGS.get("trim_fastq", False)))
++QC = bool(config.get("variant_qc", False))
++QC_SETTINGS = config.get("qc", {})
++IMAGE = str(config.get("container_image", "")).strip()
++if not IMAGE:
++    raise ValueError("container_image must point to a prebuilt SIF or a docker:// URI")
++if not (IMAGE.startswith("docker://") or IMAGE.startswith("oras://") or IMAGE.startswith("library://")):
++    IMAGE = str(Path(IMAGE).expanduser().resolve())
++
++STAGE_CFG = config.get("stage_resources", {})
++
++def stage_group(stage):
++    return "joint" if stage in {"genomicsdb", "genotype", "concat", "export_vcf", "variant_qc"} else "sample"
++
++def time_minutes(value):
++    value = str(value)
++    if "-" in value:
++        days, hms = value.split("-", 1)
++    else:
++        days, hms = "0", value
++    h, m, s = map(int, hms.split(":"))
++    return max(1, math.ceil((int(days) * 86400 + h * 3600 + m * 60 + s) / 60))
++
++def stage_resource(stage, key):
++    override = STAGE_CFG.get(stage, {})
++    if key in override:
++        value = int(override[key])
++    else:
++        source = SETTINGS["slurm"][stage_group(stage)]
++        value = {"threads": source["cpus"], "mem_mb": memory_mib(source["memory"]),
++                 "runtime": time_minutes(source["time"])}[key]
++    if value <= 0:
++        raise ValueError(f"stage_resources.{stage}.{key} must be positive")
++    return value
++
++
++def lane_base(sp, sample, run, lib):
++    return f"{OUT}/samples/{sp}/{sample}/wgs/lanes/{run}/{lib}"
++
++def bam_path(sp, sample):
++    return f"{OUT}/samples/{sp}/{sample}/wgs/bam/{sample}.bam"
++
++def gvcf_path(sp, sample, contig):
++    return f"{OUT}/samples/{sp}/{sample}/wgs/gvcf/{sample}/{contig}.g.vcf.gz"
++
++def sample_gvcfs(sp, contig):
++    return [gvcf_path(sp, sample, contig) for sample in SAMPLES[sp]]
++
++def lanes_for(w):
++    return [f"{lane_base(w.species, w.sample, r['run_id'], r['library'])}/fixed.bam"
++            for r in COHORT[w.species][w.sample]]
++
++def raw_reads(w, mate):
++    return UNITS[(w.species, w.sample, w.run, w.library)][f"fastq_r{mate}"]
++
++def align_reads(w, mate):
++    if TRIM:
++        return f"{lane_base(w.species,w.sample,w.run,w.library)}/trim_R{mate}.fastq.gz"
++    return raw_reads(w, mate)
++
++def ref_of(w):
++    return REFS[w.species]["fasta"]
++
++def ref_dict(fasta):
++    return str(Path(fasta).with_suffix(".dict"))
++
++PREFLIGHT = f"{OUT}/.preflight.ok"
++ALL_REF_INDEX = []
++for species in SPECIES:
++    fa = REFS[species]["fasta"]
++    ALL_REF_INDEX.extend([fa, fa + ".fai", ref_dict(fa),
++                          *(fa + ext for ext in (".amb", ".ann", ".pac", ".bwt.2bit.64"))])
++ALL_REF_INDEX = sorted(set(ALL_REF_INDEX))
++ALL_FASTQS = sorted({row[k] for row in UNITS.values() for k in ("fastq_r1", "fastq_r2")})
++FINAL_BCF = [f"{OUT}/joint/{sp}/cohort.raw.bcf" for sp in SPECIES]
++FINAL_VCF = [f"{OUT}/joint/{sp}/cohort.raw.vcf.gz" for sp in SPECIES]
++FINAL_TARGETS = ([v for path in FINAL_BCF + FINAL_VCF for v in (path, path + ".csi")]
++                 + [f"{OUT}/joint/{sp}/cohort.validation.json" for sp in SPECIES]
++                 + [f"{OUT}/software_versions.json"]
++                 + [f"{OUT}/manifests/{sp}/gvcf_manifest.tsv" for sp in SPECIES]
++                 + [f"{OUT}/samples/{sp}/{sample}/wgs/qc/{sample}.mosdepth.summary.txt"
++                    for sp in SPECIES for sample in SAMPLES[sp]])
++if QC:
++    FINAL_TARGETS += [f"{OUT}/qc/{sp}/filtered.bcf" for sp in SPECIES]
++    FINAL_TARGETS += [f"{OUT}/qc/{sp}/filtered.bcf.csi" for sp in SPECIES]
++    FINAL_TARGETS += [f"{OUT}/qc/{sp}/bcftools.stats.txt" for sp in SPECIES]
++
++wildcard_constraints:
++    species="beluga|polar_bear",
++    sample=r"[A-Za-z0-9][A-Za-z0-9_.-]*",
++    run=r"[A-Za-z0-9][A-Za-z0-9_.-]*",
++    library=r"[A-Za-z0-9][A-Za-z0-9_.-]*"
++
++rule all:
++    input:
++        PREFLIGHT,
++        FINAL_TARGETS
++
++rule preflight:
++    input:
++        manifests=MANIFESTS,
++        refs=ALL_REF_INDEX,
++        settings=[str(REFS_FILE), str(SETTINGS_FILE)],
++        fastqs=ALL_FASTQS
++    output:
++        ok=touch(PREFLIGHT)
++    run:
++        # Freeze the cohort. A new run_id is required if cohort/reference/config changes.
++        # FASTQ contents are not fully hashed: record size and mtime, as in Bash version.
++        signature = {
++            "run_id": RUN_ID,
++            "software_image": IMAGE,
++            "trim_fastq": TRIM,
++            "variant_qc": QC,
++            "qc_thresholds": QC_SETTINGS if QC else {},
++            "manifests": [[p, hashlib.sha256(Path(p).read_bytes()).hexdigest()] for p in MANIFESTS],
++            "fastqs": [[p, Path(p).stat().st_size, Path(p).stat().st_mtime_ns] for p in ALL_FASTQS],
++            "reference_yaml_sha256": hashlib.sha256(REFS_FILE.read_bytes()).hexdigest(),
++            "pipeline_settings_sha256": hashlib.sha256(SETTINGS_FILE.read_bytes()).hexdigest(),
++            "cohort": {sp: {sample: COHORT[sp][sample] for sample in SAMPLES[sp]} for sp in SPECIES},
++            "references": {sp: {"fasta": REFS[sp]["fasta"], "assembly": REFS[sp]["assembly"],
++                                 "contigs": CONTIGS[sp]} for sp in SPECIES},
++        }
++        for sp in SPECIES:
++            fasta = REFS[sp]["fasta"]
++            real = {line.split("\t")[0] for line in Path(fasta + ".fai").read_text().splitlines()}
++            absent = set(CONTIGS[sp]) - real
++            if absent:
++                raise ValueError(f"Autosomes missing from FASTA index for {sp}: {sorted(absent)}")
++        run_dir = Path(OUT)
++        run_dir.mkdir(parents=True, exist_ok=True)
++        lock = run_dir / "cohort.lock.json"
++        if lock.exists():
++            if json.loads(lock.read_text()) != signature:
++                raise ValueError(f"The cohort or references changed for {RUN_ID}; use a new run_id")
++        else:
++            temp_lock = run_dir / "cohort.lock.json.incomplete"
++            temp_lock.write_text(json.dumps(signature, indent=2, ensure_ascii=False) + "\n")
++            os.replace(temp_lock, lock)
++
++if TRIM:
++    rule trim:
++        input:
++            r1=lambda w: raw_reads(w, 1),
++            r2=lambda w: raw_reads(w, 2),
++            preflight=PREFLIGHT
++        output:
++            r1=f"{OUT}/samples/{{species}}/{{sample}}/wgs/lanes/{{run}}/{{library}}/trim_R1.fastq.gz",
++            r2=f"{OUT}/samples/{{species}}/{{sample}}/wgs/lanes/{{run}}/{{library}}/trim_R2.fastq.gz",
++            html=f"{OUT}/samples/{{species}}/{{sample}}/wgs/lanes/{{run}}/{{library}}/trim_R1.html",
++            json=f"{OUT}/samples/{{species}}/{{sample}}/wgs/lanes/{{run}}/{{library}}/trim_R1.json"
++        threads: stage_resource("trim", "threads")
++        resources:
++            mem_mb=stage_resource("trim", "mem_mb"),
++            runtime=stage_resource("trim", "runtime")
++        container: IMAGE
++        log: f"{OUT}/logs/trim/{{species}}_{{sample}}_{{run}}_{{library}}.log"
++        shell:
++            """
++            bash stages/trim.sh {input.r1:q} {input.r2:q} {output.r1:q} {output.r2:q} {threads} > {log:q} 2>&1
++            """
++
++rule align:
++    input:
++        ref=ref_of,
++        r1=lambda w: align_reads(w, 1),
++        r2=lambda w: align_reads(w, 2),
++        preflight=PREFLIGHT
++    output:
++        bam=f"{OUT}/samples/{{species}}/{{sample}}/wgs/lanes/{{run}}/{{library}}/fixed.bam"
++    threads: stage_resource("align", "threads")
++    resources:
++        mem_mb=stage_resource("align", "mem_mb"),
++        runtime=stage_resource("align", "runtime")
++    params:
++        # Resource budget controls samtools sort memory as well as Java heap in GATK.
++        library=lambda w: w.library,
++        run=lambda w: w.run
++    container: IMAGE
++    log: f"{OUT}/logs/align/{{species}}_{{sample}}_{{run}}_{{library}}.log"
++    shell:
++        """
++        export MIN_SNP_MEMORY_MB={resources.mem_mb} MIN_SNP_THREADS={threads} OMP_NUM_THREADS={threads}
++        bash stages/align.sh {input.ref:q} {input.r1:q} {input.r2:q} {output.bam:q} \
++           {wildcards.sample:q} {params.library:q} {params.run:q} {threads} > {log:q} 2>&1
++        """
++
++rule merge_bam:
++    input:
++        lanes=lanes_for
++    output:
++        bam=f"{OUT}/samples/{{species}}/{{sample}}/wgs/bam/{{sample}}.merged.bam"
++    threads: stage_resource("merge_bam", "threads")
++    resources:
++        mem_mb=stage_resource("merge_bam", "mem_mb"),
++        runtime=stage_resource("merge_bam", "runtime")
++    container: IMAGE
++    log: f"{OUT}/logs/merge/{{species}}_{{sample}}.log"
++    shell:
++        """
++        export MIN_SNP_MEMORY_MB={resources.mem_mb} MIN_SNP_THREADS={threads}
++        bash stages/merge_bam.sh {output.bam:q} {threads} {input.lanes:q} > {log:q} 2>&1
++        """
++
++rule markdup:
++    input:
++        bam=f"{OUT}/samples/{{species}}/{{sample}}/wgs/bam/{{sample}}.merged.bam"
++    output:
++        bam=f"{OUT}/samples/{{species}}/{{sample}}/wgs/bam/{{sample}}.bam",
++        bai=f"{OUT}/samples/{{species}}/{{sample}}/wgs/bam/{{sample}}.bam.bai",
++        metrics=f"{OUT}/samples/{{species}}/{{sample}}/wgs/qc/{{sample}}.dup.txt"
++    threads: stage_resource("markdup", "threads")
++    resources:
++        mem_mb=stage_resource("markdup", "mem_mb"),
++        runtime=stage_resource("markdup", "runtime")
++    container: IMAGE
++    log: f"{OUT}/logs/markdup/{{species}}_{{sample}}.log"
++    shell:
++        """
++        export MIN_SNP_MEMORY_MB={resources.mem_mb} MIN_SNP_THREADS={threads}
++        bash stages/markdup.sh {input.bam:q} {output.bam:q} {output.metrics:q} {threads} > {log:q} 2>&1
++        """
++
++rule bam_qc:
++    input:
++        bam=f"{OUT}/samples/{{species}}/{{sample}}/wgs/bam/{{sample}}.bam",
++        bai=f"{OUT}/samples/{{species}}/{{sample}}/wgs/bam/{{sample}}.bam.bai"
++    output:
++        flagstat=f"{OUT}/samples/{{species}}/{{sample}}/wgs/qc/{{sample}}.flagstat.txt",
++        stats=f"{OUT}/samples/{{species}}/{{sample}}/wgs/qc/{{sample}}.stats.txt",
++        summary=f"{OUT}/samples/{{species}}/{{sample}}/wgs/qc/{{sample}}.mosdepth.summary.txt"
++    threads: stage_resource("bam_qc", "threads")
++    resources:
++        mem_mb=stage_resource("bam_qc", "mem_mb"),
++        runtime=stage_resource("bam_qc", "runtime")
++    params:
++        prefix=lambda w: f"{OUT}/samples/{w.species}/{w.sample}/wgs/qc/{w.sample}"
++    container: IMAGE
++    log: f"{OUT}/logs/bam_qc/{{species}}_{{sample}}.log"
++    shell:
++        """
++        export MIN_SNP_MEMORY_MB={resources.mem_mb} MIN_SNP_THREADS={threads}
++        bash stages/bam_qc.sh {input.bam:q} {params.prefix:q} {threads} > {log:q} 2>&1
++        """
++
++rule haplotypecaller:
++    input:
++        ref=ref_of,
++        bam=f"{OUT}/samples/{{species}}/{{sample}}/wgs/bam/{{sample}}.bam",
++        bai=f"{OUT}/samples/{{species}}/{{sample}}/wgs/bam/{{sample}}.bam.bai"
++    output:
++        vcf=f"{OUT}/samples/{{species}}/{{sample}}/wgs/gvcf/{{sample}}/{{contig}}.g.vcf.gz",
++        csi=f"{OUT}/samples/{{species}}/{{sample}}/wgs/gvcf/{{sample}}/{{contig}}.g.vcf.gz.csi"
++    threads: stage_resource("haplotypecaller", "threads")
++    resources:
++        mem_mb=stage_resource("haplotypecaller", "mem_mb"),
++        runtime=stage_resource("haplotypecaller", "runtime")
++    container: IMAGE
++    log: f"{OUT}/logs/haplotypecaller/{{species}}_{{sample}}_{{contig}}.log"
++    shell:
++        """
++        export MIN_SNP_MEMORY_MB={resources.mem_mb} MIN_SNP_THREADS={threads} OMP_NUM_THREADS={threads}
++        bash stages/haplotypecaller.sh {input.ref:q} {input.bam:q} {wildcards.contig:q} {output.vcf:q} {threads} > {log:q} 2>&1
++        bcftools index -f -c {output.vcf:q} >> {log:q} 2>&1
++        bcftools index -n {output.vcf:q} >> {log:q} 2>&1
++        """
++
++rule gvcf_manifest:
++    input:
++        vcfs=lambda w: [gvcf_path(w.species, sample, ctg)
++                         for sample in SAMPLES[w.species] for ctg in CONTIGS[w.species]],
++        indices=lambda w: [gvcf_path(w.species, sample, ctg) + ".csi"
++                            for sample in SAMPLES[w.species] for ctg in CONTIGS[w.species]]
++    output:
++        f"{OUT}/manifests/{{species}}/gvcf_manifest.tsv"
++    run:
++        Path(output[0]).parent.mkdir(parents=True, exist_ok=True)
++        with open(output[0], "w", encoding="utf-8") as fh:
++            fh.write("sample_id\tcontig\tgvcf_path\n")
++            for sample in SAMPLES[wildcards.species]:
++                for ctg in CONTIGS[wildcards.species]:
++                    fh.write(f"{sample}\t{ctg}\t{os.path.abspath(gvcf_path(wildcards.species, sample, ctg))}\n")
++
++rule sample_map:
++    input:
++        vcfs=lambda w: sample_gvcfs(w.species, w.contig),
++        indices=lambda w: [p + ".csi" for p in sample_gvcfs(w.species, w.contig)]
++    output:
++        f"{OUT}/joint/{{species}}/sample_maps/{{contig}}.tsv"
++    run:
++        if wildcards.contig not in CONTIGS[wildcards.species]:
++            raise ValueError(f"Unexpected contig for species {wildcards.species}: {wildcards.contig}")
++        Path(output[0]).parent.mkdir(parents=True, exist_ok=True)
++        with open(output[0], "w", encoding="utf-8") as fh:
++            for sample in SAMPLES[wildcards.species]:
++                fh.write(f"{sample}\t{os.path.abspath(gvcf_path(wildcards.species,sample,wildcards.contig))}\n")
++
++rule genomicsdb:
++    input:
++        ref=ref_of,
++        samplemap=f"{OUT}/joint/{{species}}/sample_maps/{{contig}}.tsv"
++    output:
++        db=directory(f"{OUT}/joint/{{species}}/genomicsdb/{{contig}}")
++    threads: stage_resource("genomicsdb", "threads")
++    resources:
++        mem_mb=stage_resource("genomicsdb", "mem_mb"),
++        runtime=stage_resource("genomicsdb", "runtime")
++    container: IMAGE
++    log: f"{OUT}/logs/genomicsdb/{{species}}_{{contig}}.log"
++    shell:
++        """
++        export MIN_SNP_MEMORY_MB={resources.mem_mb} MIN_SNP_THREADS={threads} OMP_NUM_THREADS={threads}
++        bash stages/genomicsdb.sh {input.ref:q} {wildcards.contig:q} {input.samplemap:q} {output.db:q} > {log:q} 2>&1
++        test -s {output.db:q}/.completed
++        """
++
++rule genotype:
++    input:
++        ref=ref_of,
++        db=f"{OUT}/joint/{{species}}/genomicsdb/{{contig}}"
++    output:
++        vcf=f"{OUT}/joint/{{species}}/per_contig/{{contig}}.vcf.gz",
++        csi=f"{OUT}/joint/{{species}}/per_contig/{{contig}}.vcf.gz.csi"
++    threads: stage_resource("genotype", "threads")
++    resources:
++        mem_mb=stage_resource("genotype", "mem_mb"),
++        runtime=stage_resource("genotype", "runtime")
++    container: IMAGE
++    log: f"{OUT}/logs/genotype/{{species}}_{{contig}}.log"
++    shell:
++        """
++        export MIN_SNP_MEMORY_MB={resources.mem_mb} MIN_SNP_THREADS={threads} OMP_NUM_THREADS={threads}
++        bash stages/genotype.sh {input.ref:q} {input.db:q} {output.vcf:q} > {log:q} 2>&1
++        bcftools index -f -c {output.vcf:q} >> {log:q} 2>&1
++        bcftools index -n {output.vcf:q} >> {log:q} 2>&1
++        """
++
++rule concat:
++    input:
++        vcfs=lambda w: [f"{OUT}/joint/{w.species}/per_contig/{ctg}.vcf.gz" for ctg in CONTIGS[w.species]],
++        indices=lambda w: [f"{OUT}/joint/{w.species}/per_contig/{ctg}.vcf.gz.csi" for ctg in CONTIGS[w.species]]
++    output:
++        bcf=f"{OUT}/joint/{{species}}/cohort.raw.bcf",
++        csi=f"{OUT}/joint/{{species}}/cohort.raw.bcf.csi"
++    threads: stage_resource("concat", "threads")
++    resources:
++        mem_mb=stage_resource("concat", "mem_mb"),
++        runtime=stage_resource("concat", "runtime")
++    container: IMAGE
++    log: f"{OUT}/logs/concat/{{species}}.log"
++    shell:
++        """
++        export MIN_SNP_MEMORY_MB={resources.mem_mb} MIN_SNP_THREADS={threads}
++        bash stages/concat.sh {output.bcf:q} {input.vcfs:q} > {log:q} 2>&1
++        """
++
++rule export_vcf:
++    input:
++        bcf=f"{OUT}/joint/{{species}}/cohort.raw.bcf",
++        csi=f"{OUT}/joint/{{species}}/cohort.raw.bcf.csi"
++    output:
++        vcf=f"{OUT}/joint/{{species}}/cohort.raw.vcf.gz",
++        csi=f"{OUT}/joint/{{species}}/cohort.raw.vcf.gz.csi"
++    threads: stage_resource("export_vcf", "threads")
++    resources:
++        mem_mb=stage_resource("export_vcf", "mem_mb"),
++        runtime=stage_resource("export_vcf", "runtime")
++    container: IMAGE
++    log: f"{OUT}/logs/export/{{species}}.log"
++    shell:
++        """
++        export MIN_SNP_MEMORY_MB={resources.mem_mb} MIN_SNP_THREADS={threads}
++        bash stages/export_vcf.sh {input.bcf:q} {output.vcf:q} > {log:q} 2>&1
++        """
++
++rule validate_cohort:
++    input:
++        bcf=f"{OUT}/joint/{{species}}/cohort.raw.bcf",
++        bcf_index=f"{OUT}/joint/{{species}}/cohort.raw.bcf.csi",
++        vcf=f"{OUT}/joint/{{species}}/cohort.raw.vcf.gz",
++        vcf_index=f"{OUT}/joint/{{species}}/cohort.raw.vcf.gz.csi"
++    output:
++        f"{OUT}/joint/{{species}}/cohort.validation.json"
++    threads: 1
++    resources: mem_mb=2000, runtime=60
++    params:
++        samples=lambda w: SAMPLES[w.species],
++        contigs=lambda w: CONTIGS[w.species]
++    container: IMAGE
++    log: f"{OUT}/logs/validate/{{species}}.log"
++    shell:
++        """
++        python workflow/scripts/validate_vcf.py --bcf {input.bcf:q} --vcf {input.vcf:q} \
++          --species {wildcards.species:q} --samples {params.samples:q} --contigs {params.contigs:q} \
++          --output {output:q} > {log:q} 2>&1
++        """
++
++rule software_versions:
++    input:
++        preflight=PREFLIGHT
++    output:
++        f"{OUT}/software_versions.json"
++    threads: 1
++    resources: mem_mb=2000, runtime=60
++    container: IMAGE
++    log: f"{OUT}/logs/versions.log"
++    shell:
++        """
++        python workflow/scripts/software_versions.py {output:q} > {log:q} 2>&1
++        """
++
++if QC:
++    for k in ("min_dp", "min_gq", "max_missing", "min_maf"):
++        if k not in QC_SETTINGS:
++            raise ValueError(f"Set qc.{k} in config/snakemake.yaml")
++    rule variant_qc:
++        input:
++            ref=ref_of,
++            vcf=f"{OUT}/joint/{{species}}/cohort.raw.vcf.gz",
++            csi=f"{OUT}/joint/{{species}}/cohort.raw.vcf.gz.csi"
++        output:
++            norm=f"{OUT}/qc/{{species}}/normalized.bcf",
++            norm_index=f"{OUT}/qc/{{species}}/normalized.bcf.csi",
++            filtered=f"{OUT}/qc/{{species}}/filtered.bcf",
++            filtered_index=f"{OUT}/qc/{{species}}/filtered.bcf.csi"
++        threads: stage_resource("variant_qc", "threads")
++        resources:
++            mem_mb=stage_resource("variant_qc", "mem_mb"),
++            runtime=stage_resource("variant_qc", "runtime")
++        params:
++            contigs=lambda w: ",".join(CONTIGS[w.species]),
++            dp=int(QC_SETTINGS["min_dp"]), gq=int(QC_SETTINGS["min_gq"]),
++            missing=float(QC_SETTINGS["max_missing"]), maf=float(QC_SETTINGS["min_maf"])
++        container: IMAGE
++        log: f"{OUT}/logs/qc/{{species}}.log"
++        shell:
++            """
++            export MIN_SNP_MEMORY_MB={resources.mem_mb} MIN_SNP_THREADS={threads}
++            bash stages/qc.sh {input.ref:q} {input.vcf:q} {output.norm:q} {output.filtered:q} \
++              {params.dp} {params.gq} {params.missing} {params.maf} {params.contigs:q} > {log:q} 2>&1
++            """
++
++    rule variant_qc_stats:
++        input:
++            bcf=f"{OUT}/qc/{{species}}/filtered.bcf",
++            index=f"{OUT}/qc/{{species}}/filtered.bcf.csi"
++        output:
++            f"{OUT}/qc/{{species}}/bcftools.stats.txt"
++        threads: 1
++        resources: mem_mb=2000, runtime=120
++        container: IMAGE
++        log: f"{OUT}/logs/qc_stats/{{species}}.log"
++        shell:
++            """
++            bcftools stats -s - {input.bcf:q} > {output:q} 2> {log:q}
++            """
+diff --git a/workflow/scripts/software_versions.py b/workflow/scripts/software_versions.py
+new file mode 100644
+index 0000000..ecd1ec2
+--- /dev/null
++++ b/workflow/scripts/software_versions.py
+@@ -0,0 +1,32 @@
++#!/usr/bin/env python3
++"""Record actual executable versions from inside the WGS container."""
++from __future__ import annotations
++
++import json
++from pathlib import Path
++import subprocess
++import sys
++
++
++def main(dest: str):
++    commands = {"bwa-mem3": ["bwa-mem3", "version"], "samtools": ["samtools", "--version"],
++                "bcftools": ["bcftools", "--version"], "gatk": ["gatk", "--version"],
++                "fastp": ["fastp", "--version"], "mosdepth": ["mosdepth", "--version"],
++                "plink2": ["plink2", "--version"]}
++    data = {"python": sys.version.split()[0]}
++    for name, cmd in commands.items():
++        try:
++            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
++            lines = (result.stdout + "\n" + result.stderr).strip().splitlines()
++            data[name] = {"exit_code": result.returncode, "version": lines[0][:250] if lines else "<empty>"}
++        except (OSError, subprocess.TimeoutExpired) as exc:
++            data[name] = {"error": str(exc)}
++    target = Path(dest)
++    target.parent.mkdir(parents=True, exist_ok=True)
++    target.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
++
++
++if __name__ == "__main__":
++    if len(sys.argv) != 2:
++        raise SystemExit("Usage: software_versions.py OUTPUT.json")
++    main(sys.argv[1])
+diff --git a/workflow/scripts/validate_vcf.py b/workflow/scripts/validate_vcf.py
+new file mode 100644
+index 0000000..2316f3b
+--- /dev/null
++++ b/workflow/scripts/validate_vcf.py
+@@ -0,0 +1,62 @@
++#!/usr/bin/env python3
++"""Validate a per-species cohort BCF and VCF; write compact QC evidence."""
++from __future__ import annotations
++
++import argparse
++import json
++from pathlib import Path
++import subprocess
++
++
++def run_capture(args):
++    result = subprocess.run(args, check=True, capture_output=True, text=True)
++    return result.stdout.strip()
++
++
++def validate(bcf: Path, vcf: Path, samples: list[str], allowed: list[str], species: str) -> dict:
++    bcf_ids = run_capture(["bcftools", "query", "-l", str(bcf)]).splitlines()
++    vcf_ids = run_capture(["bcftools", "query", "-l", str(vcf)]).splitlines()
++    expected = set(samples)
++    if not expected or len(expected) != len(samples):
++        raise ValueError("Empty or repeated sample IDs in FASTQ manifest")
++    for name, observed in ((str(bcf), bcf_ids), (str(vcf), vcf_ids)):
++        if len(observed) != len(samples) or set(observed) != expected:
++            raise ValueError(f"Wrong cohort in {name}: {observed} != {samples}")
++    if bcf_ids != vcf_ids:
++        raise ValueError("BCF and VCF have a different sample order")
++    counts = []
++    for name in (bcf, vcf):
++        total = int(run_capture(["bcftools", "index", "-n", str(name)]))
++        if total <= 0:
++            raise ValueError(f"No indexed variants in {name}")
++        indexed_contigs = {}
++        for line in run_capture(["bcftools", "index", "-s", str(name)]).splitlines():
++            col = line.split("\t")
++            if len(col) >= 3:
++                indexed_contigs[col[0]] = int(col[2])
++        if set(indexed_contigs) - set(allowed):
++            raise ValueError(f"Unexpected non-autosomal contigs in {name}: {set(indexed_contigs)-set(allowed)}")
++        counts.append({"format": "bcf" if name == bcf else "vcf.gz", "n_variants": total,
++                       "variants_per_contig": indexed_contigs})
++    if counts[0]["n_variants"] != counts[1]["n_variants"]:
++        raise ValueError("Variant count changed during BCF -> VCF conversion")
++    return {"species": species, "n_samples": len(samples), "sample_ids": bcf_ids,
++            "assembly_contigs": allowed, "files": counts, "status": "validated"}
++
++
++def main():
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--bcf", type=Path, required=True)
++    parser.add_argument("--vcf", type=Path, required=True)
++    parser.add_argument("--species", required=True)
++    parser.add_argument("--samples", nargs="+", required=True)
++    parser.add_argument("--contigs", nargs="+", required=True)
++    parser.add_argument("--output", type=Path, required=True)
++    args = parser.parse_args()
++    report = validate(args.bcf, args.vcf, args.samples, args.contigs, args.species)
++    args.output.parent.mkdir(parents=True, exist_ok=True)
++    args.output.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
++
++
++if __name__ == "__main__":
++    main()

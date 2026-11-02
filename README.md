@@ -4,6 +4,22 @@
 
 Основная идея — разделить получение генотипов и их популяционно-генетический анализ. В качестве исходных данных можно использовать FASTQ либо уже подготовленный многосэмпловый VCF/BCF.
 
+> **Ветка `snakemake` (WGS → VCF/BCF).** Новый оркестратор — Snakemake 9 + Apptainer/Singularity; вычислительные стадии `stages/*.sh` сохранены. Создайте Snakemake-окружение из `envs/snakemake.yaml`, получите OCI/SIF-образ по инструкции `docs/SNAKEMAKE_SINGULARITY.md`, затем выполните пилот:
+>
+> ```bash
+> python scripts/run_snakemake.py --fastq inputs/beluga_two.fastq.tsv inputs/polar_bear_two.fastq.tsv \
+>   --run-id snakemake_pilot_001 --backend slurm --bind /mnt/tank
+> # Если dry-run корректен и SIF подготовлен:
+> python scripts/run_snakemake.py --fastq inputs/beluga_two.fastq.tsv inputs/polar_bear_two.fastq.tsv \
+>   --run-id snakemake_pilot_001 --backend slurm --bind /mnt/tank --jobs 3 --submit
+> ```
+>
+> Новый интерфейс **не требует** `pipeline.py`; этот файл и нижеописанный Bash/Python/SLURM backend оставлены для совместимости и сравнения. Научные модули PCA / SNP-панелей всё ещё не подключены к рабочему CLI исходного snapshot. Полная инструкция: [Snakemake + Singularity](docs/SNAKEMAKE_SINGULARITY.md).
+
+---
+
+## Архивный Bash/Python/SLURM-интерфейс (ветка `develop`)
+
 ## Возможности
 
 Pipeline предусматривает три независимых сценария:

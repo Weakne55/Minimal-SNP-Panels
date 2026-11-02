@@ -91,7 +91,6 @@ data/wgs/
 # Server-local history, tests and compatibility tools (never delete locally).
 /legacy/
 /benchmarks/
-/tests/
 /tools/
 *.bak
 *.status.bak
@@ -102,7 +101,6 @@ data/wgs/
 /results/
 /legacy/
 /tools/
-/tests/
 __pycache__/
 .pytest_cache/
 *.py[cod]
@@ -125,3 +123,9 @@ __pycache__/
 *.g.vcf.gz
 *.g.vcf.gz.tbi
 /wgs_test/wgs_pilot.py
+
+# Snakemake + Apptainer runtime
+.snakemake/
+*.sif
+*.sif.*
+*.img

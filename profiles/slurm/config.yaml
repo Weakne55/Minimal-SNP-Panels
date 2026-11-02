@@ -1,0 +1,13 @@
+# Tune for your cluster. In particular, meduza-1 must expose AVX2 for BWA-MEM3.
+executor: slurm
+jobs: 6
+local-cores: 1
+use-apptainer: true
+rerun-incomplete: true
+printshellcmds: true
+latency-wait: 120
+keep-going: true
+slurm-no-account: true
+default-resources:
+  slurm_partition: main
+  slurm_extra: "--nodelist=meduza-1"

@@ -1,0 +1,519 @@
+"""WGS -> multi-sample VCF/BCF with Snakemake and Apptainer (Singularity).
+
+    snakemake -s workflow/Snakefile --configfile config/snakemake.yaml --dry-run
+
+Per-lane and per-contig jobs preserve the existing project's Bash/GATK semantics.
+The population structure and SNP-panel CLI remain deliberately unimplemented in
+this migration; never manufacture population labels or classification metrics.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+import os
+from pathlib import Path
+import sys
+
+import yaml
+
+ROOT = Path(workflow.basedir).parent.resolve()
+sys.path.insert(0, str(ROOT / "src"))
+from minsnp.core import identifier
+from minsnp.resources import memory_mib, validate_resources
+from minsnp.wgs import load_cohort
+
+configfile: str(ROOT / "config" / "snakemake.yaml")
+
+RUN_ID = identifier(str(config.get("run_id", "")))
+OUTDIR = str(config.get("outdir", "results")).rstrip("/")
+OUT = f"{OUTDIR}/{RUN_ID}"
+MANIFESTS = config.get("manifests", [])
+if isinstance(MANIFESTS, str):
+    # --config 'manifests=["a.tsv","b.tsv"]' is normally YAML-decoded into a list.
+    MANIFESTS = [MANIFESTS]
+if not isinstance(MANIFESTS, list) or not MANIFESTS:
+    raise ValueError("Set manifests: [path1.tsv, path2.tsv] in config/snakemake.yaml")
+MANIFESTS = [str(Path(x).expanduser().resolve()) for x in MANIFESTS]
+
+REFS_FILE = Path(str(config.get("references", "config/references.yaml"))).expanduser().resolve()
+SETTINGS_FILE = Path(str(config.get("pipeline_settings", "config/pipeline.yaml"))).expanduser().resolve()
+REFS_YAML = yaml.safe_load(REFS_FILE.read_text(encoding="utf-8"))
+SETTINGS = yaml.safe_load(SETTINGS_FILE.read_text(encoding="utf-8"))
+validate_resources(SETTINGS)
+COHORT = load_cohort(MANIFESTS)
+REFS = REFS_YAML["species"]
+if not set(COHORT).issubset(REFS):
+    raise ValueError(f"No reference for species: {set(COHORT) - set(REFS)}")
+if not set(COHORT).issubset({"beluga", "polar_bear"}):
+    raise ValueError(f"Unexpected species: {set(COHORT) - {'beluga','polar_bear'}}")
+SPECIES = sorted(COHORT)
+SAMPLES = {sp: sorted(COHORT[sp]) for sp in SPECIES}
+UNITS = {}
+for species, samples in COHORT.items():
+    for sample, rows in samples.items():
+        for row in rows:
+            UNITS[(species, sample, row["run_id"], row["library"])] = row
+
+for species in SPECIES:
+    spec = REFS[species]
+    if not isinstance(spec.get("contigs"), list) or not spec["contigs"] or len(set(spec["contigs"])) != len(spec["contigs"]):
+        raise ValueError(f"Missing/duplicate contigs for {species}")
+    spec["fasta"] = str(Path(spec["fasta"]).expanduser().resolve())
+CONTIGS = {sp: REFS[sp]["contigs"] for sp in SPECIES}
+TRIM = bool(config.get("trim_fastq", SETTINGS.get("trim_fastq", False)))
+QC = bool(config.get("variant_qc", False))
+QC_SETTINGS = config.get("qc", {})
+IMAGE = str(config.get("container_image", "")).strip()
+if not IMAGE:
+    raise ValueError("container_image must point to a prebuilt SIF or a docker:// URI")
+if not (IMAGE.startswith("docker://") or IMAGE.startswith("oras://") or IMAGE.startswith("library://")):
+    IMAGE = str(Path(IMAGE).expanduser().resolve())
+
+STAGE_CFG = config.get("stage_resources", {})
+
+def stage_group(stage):
+    return "joint" if stage in {"genomicsdb", "genotype", "concat", "export_vcf", "variant_qc"} else "sample"
+
+def time_minutes(value):
+    value = str(value)
+    if "-" in value:
+        days, hms = value.split("-", 1)
+    else:
+        days, hms = "0", value
+    h, m, s = map(int, hms.split(":"))
+    return max(1, math.ceil((int(days) * 86400 + h * 3600 + m * 60 + s) / 60))
+
+def stage_resource(stage, key):
+    override = STAGE_CFG.get(stage, {})
+    if key in override:
+        value = int(override[key])
+    else:
+        source = SETTINGS["slurm"][stage_group(stage)]
+        value = {"threads": source["cpus"], "mem_mb": memory_mib(source["memory"]),
+                 "runtime": time_minutes(source["time"])}[key]
+    if value <= 0:
+        raise ValueError(f"stage_resources.{stage}.{key} must be positive")
+    return value
+
+
+def lane_base(sp, sample, run, lib):
+    return f"{OUT}/samples/{sp}/{sample}/wgs/lanes/{run}/{lib}"
+
+def bam_path(sp, sample):
+    return f"{OUT}/samples/{sp}/{sample}/wgs/bam/{sample}.bam"
+
+def gvcf_path(sp, sample, contig):
+    return f"{OUT}/samples/{sp}/{sample}/wgs/gvcf/{sample}/{contig}.g.vcf.gz"
+
+def sample_gvcfs(sp, contig):
+    return [gvcf_path(sp, sample, contig) for sample in SAMPLES[sp]]
+
+def lanes_for(w):
+    return [f"{lane_base(w.species, w.sample, r['run_id'], r['library'])}/fixed.bam"
+            for r in COHORT[w.species][w.sample]]
+
+def raw_reads(w, mate):
+    return UNITS[(w.species, w.sample, w.run, w.library)][f"fastq_r{mate}"]
+
+def align_reads(w, mate):
+    if TRIM:
+        return f"{lane_base(w.species,w.sample,w.run,w.library)}/trim_R{mate}.fastq.gz"
+    return raw_reads(w, mate)
+
+def ref_of(w):
+    return REFS[w.species]["fasta"]
+
+def ref_dict(fasta):
+    return str(Path(fasta).with_suffix(".dict"))
+
+PREFLIGHT = f"{OUT}/.preflight.ok"
+ALL_REF_INDEX = []
+for species in SPECIES:
+    fa = REFS[species]["fasta"]
+    ALL_REF_INDEX.extend([fa, fa + ".fai", ref_dict(fa),
+                          *(fa + ext for ext in (".amb", ".ann", ".pac", ".bwt.2bit.64"))])
+ALL_REF_INDEX = sorted(set(ALL_REF_INDEX))
+ALL_FASTQS = sorted({row[k] for row in UNITS.values() for k in ("fastq_r1", "fastq_r2")})
+FINAL_BCF = [f"{OUT}/joint/{sp}/cohort.raw.bcf" for sp in SPECIES]
+FINAL_VCF = [f"{OUT}/joint/{sp}/cohort.raw.vcf.gz" for sp in SPECIES]
+FINAL_TARGETS = ([v for path in FINAL_BCF + FINAL_VCF for v in (path, path + ".csi")]
+                 + [f"{OUT}/joint/{sp}/cohort.validation.json" for sp in SPECIES]
+                 + [f"{OUT}/software_versions.json"]
+                 + [f"{OUT}/manifests/{sp}/gvcf_manifest.tsv" for sp in SPECIES]
+                 + [f"{OUT}/samples/{sp}/{sample}/wgs/qc/{sample}.mosdepth.summary.txt"
+                    for sp in SPECIES for sample in SAMPLES[sp]])
+if QC:
+    FINAL_TARGETS += [f"{OUT}/qc/{sp}/filtered.bcf" for sp in SPECIES]
+    FINAL_TARGETS += [f"{OUT}/qc/{sp}/filtered.bcf.csi" for sp in SPECIES]
+    FINAL_TARGETS += [f"{OUT}/qc/{sp}/bcftools.stats.txt" for sp in SPECIES]
+
+wildcard_constraints:
+    species="beluga|polar_bear",
+    sample=r"[A-Za-z0-9][A-Za-z0-9_.-]*",
+    run=r"[A-Za-z0-9][A-Za-z0-9_.-]*",
+    library=r"[A-Za-z0-9][A-Za-z0-9_.-]*"
+
+rule all:
+    input:
+        PREFLIGHT,
+        FINAL_TARGETS
+
+rule preflight:
+    input:
+        manifests=MANIFESTS,
+        refs=ALL_REF_INDEX,
+        settings=[str(REFS_FILE), str(SETTINGS_FILE)],
+        fastqs=ALL_FASTQS
+    output:
+        ok=touch(PREFLIGHT)
+    run:
+        # Freeze the cohort. A new run_id is required if cohort/reference/config changes.
+        # FASTQ contents are not fully hashed: record size and mtime, as in Bash version.
+        signature = {
+            "run_id": RUN_ID,
+            "software_image": IMAGE,
+            "trim_fastq": TRIM,
+            "variant_qc": QC,
+            "qc_thresholds": QC_SETTINGS if QC else {},
+            "manifests": [[p, hashlib.sha256(Path(p).read_bytes()).hexdigest()] for p in MANIFESTS],
+            "fastqs": [[p, Path(p).stat().st_size, Path(p).stat().st_mtime_ns] for p in ALL_FASTQS],
+            "reference_yaml_sha256": hashlib.sha256(REFS_FILE.read_bytes()).hexdigest(),
+            "pipeline_settings_sha256": hashlib.sha256(SETTINGS_FILE.read_bytes()).hexdigest(),
+            "cohort": {sp: {sample: COHORT[sp][sample] for sample in SAMPLES[sp]} for sp in SPECIES},
+            "references": {sp: {"fasta": REFS[sp]["fasta"], "assembly": REFS[sp]["assembly"],
+                                 "contigs": CONTIGS[sp]} for sp in SPECIES},
+        }
+        for sp in SPECIES:
+            fasta = REFS[sp]["fasta"]
+            real = {line.split("\t")[0] for line in Path(fasta + ".fai").read_text().splitlines()}
+            absent = set(CONTIGS[sp]) - real
+            if absent:
+                raise ValueError(f"Autosomes missing from FASTA index for {sp}: {sorted(absent)}")
+        run_dir = Path(OUT)
+        run_dir.mkdir(parents=True, exist_ok=True)
+        lock = run_dir / "cohort.lock.json"
+        if lock.exists():
+            if json.loads(lock.read_text()) != signature:
+                raise ValueError(f"The cohort or references changed for {RUN_ID}; use a new run_id")
+        else:
+            temp_lock = run_dir / "cohort.lock.json.incomplete"
+            temp_lock.write_text(json.dumps(signature, indent=2, ensure_ascii=False) + "\n")
+            os.replace(temp_lock, lock)
+
+if TRIM:
+    rule trim:
+        input:
+            r1=lambda w: raw_reads(w, 1),
+            r2=lambda w: raw_reads(w, 2),
+            preflight=PREFLIGHT
+        output:
+            r1=f"{OUT}/samples/{{species}}/{{sample}}/wgs/lanes/{{run}}/{{library}}/trim_R1.fastq.gz",
+            r2=f"{OUT}/samples/{{species}}/{{sample}}/wgs/lanes/{{run}}/{{library}}/trim_R2.fastq.gz",
+            html=f"{OUT}/samples/{{species}}/{{sample}}/wgs/lanes/{{run}}/{{library}}/trim_R1.html",
+            json=f"{OUT}/samples/{{species}}/{{sample}}/wgs/lanes/{{run}}/{{library}}/trim_R1.json"
+        threads: stage_resource("trim", "threads")
+        resources:
+            mem_mb=stage_resource("trim", "mem_mb"),
+            runtime=stage_resource("trim", "runtime")
+        container: IMAGE
+        log: f"{OUT}/logs/trim/{{species}}_{{sample}}_{{run}}_{{library}}.log"
+        shell:
+            """
+            bash stages/trim.sh {input.r1:q} {input.r2:q} {output.r1:q} {output.r2:q} {threads} > {log:q} 2>&1
+            """
+
+rule align:
+    input:
+        ref=ref_of,
+        r1=lambda w: align_reads(w, 1),
+        r2=lambda w: align_reads(w, 2),
+        preflight=PREFLIGHT
+    output:
+        bam=f"{OUT}/samples/{{species}}/{{sample}}/wgs/lanes/{{run}}/{{library}}/fixed.bam"
+    threads: stage_resource("align", "threads")
+    resources:
+        mem_mb=stage_resource("align", "mem_mb"),
+        runtime=stage_resource("align", "runtime")
+    params:
+        # Resource budget controls samtools sort memory as well as Java heap in GATK.
+        library=lambda w: w.library,
+        run=lambda w: w.run
+    container: IMAGE
+    log: f"{OUT}/logs/align/{{species}}_{{sample}}_{{run}}_{{library}}.log"
+    shell:
+        """
+        export MIN_SNP_MEMORY_MB={resources.mem_mb} MIN_SNP_THREADS={threads} OMP_NUM_THREADS={threads}
+        bash stages/align.sh {input.ref:q} {input.r1:q} {input.r2:q} {output.bam:q} \
+           {wildcards.sample:q} {params.library:q} {params.run:q} {threads} > {log:q} 2>&1
+        """
+
+rule merge_bam:
+    input:
+        lanes=lanes_for
+    output:
+        bam=f"{OUT}/samples/{{species}}/{{sample}}/wgs/bam/{{sample}}.merged.bam"
+    threads: stage_resource("merge_bam", "threads")
+    resources:
+        mem_mb=stage_resource("merge_bam", "mem_mb"),
+        runtime=stage_resource("merge_bam", "runtime")
+    container: IMAGE
+    log: f"{OUT}/logs/merge/{{species}}_{{sample}}.log"
+    shell:
+        """
+        export MIN_SNP_MEMORY_MB={resources.mem_mb} MIN_SNP_THREADS={threads}
+        bash stages/merge_bam.sh {output.bam:q} {threads} {input.lanes:q} > {log:q} 2>&1
+        """
+
+rule markdup:
+    input:
+        bam=f"{OUT}/samples/{{species}}/{{sample}}/wgs/bam/{{sample}}.merged.bam"
+    output:
+        bam=f"{OUT}/samples/{{species}}/{{sample}}/wgs/bam/{{sample}}.bam",
+        bai=f"{OUT}/samples/{{species}}/{{sample}}/wgs/bam/{{sample}}.bam.bai",
+        metrics=f"{OUT}/samples/{{species}}/{{sample}}/wgs/qc/{{sample}}.dup.txt"
+    threads: stage_resource("markdup", "threads")
+    resources:
+        mem_mb=stage_resource("markdup", "mem_mb"),
+        runtime=stage_resource("markdup", "runtime")
+    container: IMAGE
+    log: f"{OUT}/logs/markdup/{{species}}_{{sample}}.log"
+    shell:
+        """
+        export MIN_SNP_MEMORY_MB={resources.mem_mb} MIN_SNP_THREADS={threads}
+        bash stages/markdup.sh {input.bam:q} {output.bam:q} {output.metrics:q} {threads} > {log:q} 2>&1
+        """
+
+rule bam_qc:
+    input:
+        bam=f"{OUT}/samples/{{species}}/{{sample}}/wgs/bam/{{sample}}.bam",
+        bai=f"{OUT}/samples/{{species}}/{{sample}}/wgs/bam/{{sample}}.bam.bai"
+    output:
+        flagstat=f"{OUT}/samples/{{species}}/{{sample}}/wgs/qc/{{sample}}.flagstat.txt",
+        stats=f"{OUT}/samples/{{species}}/{{sample}}/wgs/qc/{{sample}}.stats.txt",
+        summary=f"{OUT}/samples/{{species}}/{{sample}}/wgs/qc/{{sample}}.mosdepth.summary.txt"
+    threads: stage_resource("bam_qc", "threads")
+    resources:
+        mem_mb=stage_resource("bam_qc", "mem_mb"),
+        runtime=stage_resource("bam_qc", "runtime")
+    params:
+        prefix=lambda w: f"{OUT}/samples/{w.species}/{w.sample}/wgs/qc/{w.sample}"
+    container: IMAGE
+    log: f"{OUT}/logs/bam_qc/{{species}}_{{sample}}.log"
+    shell:
+        """
+        export MIN_SNP_MEMORY_MB={resources.mem_mb} MIN_SNP_THREADS={threads}
+        bash stages/bam_qc.sh {input.bam:q} {params.prefix:q} {threads} > {log:q} 2>&1
+        """
+
+rule haplotypecaller:
+    input:
+        ref=ref_of,
+        bam=f"{OUT}/samples/{{species}}/{{sample}}/wgs/bam/{{sample}}.bam",
+        bai=f"{OUT}/samples/{{species}}/{{sample}}/wgs/bam/{{sample}}.bam.bai"
+    output:
+        vcf=f"{OUT}/samples/{{species}}/{{sample}}/wgs/gvcf/{{sample}}/{{contig}}.g.vcf.gz",
+        csi=f"{OUT}/samples/{{species}}/{{sample}}/wgs/gvcf/{{sample}}/{{contig}}.g.vcf.gz.csi"
+    threads: stage_resource("haplotypecaller", "threads")
+    resources:
+        mem_mb=stage_resource("haplotypecaller", "mem_mb"),
+        runtime=stage_resource("haplotypecaller", "runtime")
+    container: IMAGE
+    log: f"{OUT}/logs/haplotypecaller/{{species}}_{{sample}}_{{contig}}.log"
+    shell:
+        """
+        export MIN_SNP_MEMORY_MB={resources.mem_mb} MIN_SNP_THREADS={threads} OMP_NUM_THREADS={threads}
+        bash stages/haplotypecaller.sh {input.ref:q} {input.bam:q} {wildcards.contig:q} {output.vcf:q} {threads} > {log:q} 2>&1
+        bcftools index -f -c {output.vcf:q} >> {log:q} 2>&1
+        bcftools index -n {output.vcf:q} >> {log:q} 2>&1
+        """
+
+rule gvcf_manifest:
+    input:
+        vcfs=lambda w: [gvcf_path(w.species, sample, ctg)
+                         for sample in SAMPLES[w.species] for ctg in CONTIGS[w.species]],
+        indices=lambda w: [gvcf_path(w.species, sample, ctg) + ".csi"
+                            for sample in SAMPLES[w.species] for ctg in CONTIGS[w.species]]
+    output:
+        f"{OUT}/manifests/{{species}}/gvcf_manifest.tsv"
+    run:
+        Path(output[0]).parent.mkdir(parents=True, exist_ok=True)
+        with open(output[0], "w", encoding="utf-8") as fh:
+            fh.write("sample_id\tcontig\tgvcf_path\n")
+            for sample in SAMPLES[wildcards.species]:
+                for ctg in CONTIGS[wildcards.species]:
+                    fh.write(f"{sample}\t{ctg}\t{os.path.abspath(gvcf_path(wildcards.species, sample, ctg))}\n")
+
+rule sample_map:
+    input:
+        vcfs=lambda w: sample_gvcfs(w.species, w.contig),
+        indices=lambda w: [p + ".csi" for p in sample_gvcfs(w.species, w.contig)]
+    output:
+        f"{OUT}/joint/{{species}}/sample_maps/{{contig}}.tsv"
+    run:
+        if wildcards.contig not in CONTIGS[wildcards.species]:
+            raise ValueError(f"Unexpected contig for species {wildcards.species}: {wildcards.contig}")
+        Path(output[0]).parent.mkdir(parents=True, exist_ok=True)
+        with open(output[0], "w", encoding="utf-8") as fh:
+            for sample in SAMPLES[wildcards.species]:
+                fh.write(f"{sample}\t{os.path.abspath(gvcf_path(wildcards.species,sample,wildcards.contig))}\n")
+
+rule genomicsdb:
+    input:
+        ref=ref_of,
+        samplemap=f"{OUT}/joint/{{species}}/sample_maps/{{contig}}.tsv"
+    output:
+        db=directory(f"{OUT}/joint/{{species}}/genomicsdb/{{contig}}")
+    threads: stage_resource("genomicsdb", "threads")
+    resources:
+        mem_mb=stage_resource("genomicsdb", "mem_mb"),
+        runtime=stage_resource("genomicsdb", "runtime")
+    container: IMAGE
+    log: f"{OUT}/logs/genomicsdb/{{species}}_{{contig}}.log"
+    shell:
+        """
+        export MIN_SNP_MEMORY_MB={resources.mem_mb} MIN_SNP_THREADS={threads} OMP_NUM_THREADS={threads}
+        bash stages/genomicsdb.sh {input.ref:q} {wildcards.contig:q} {input.samplemap:q} {output.db:q} > {log:q} 2>&1
+        test -s {output.db:q}/.completed
+        """
+
+rule genotype:
+    input:
+        ref=ref_of,
+        db=f"{OUT}/joint/{{species}}/genomicsdb/{{contig}}"
+    output:
+        vcf=f"{OUT}/joint/{{species}}/per_contig/{{contig}}.vcf.gz",
+        csi=f"{OUT}/joint/{{species}}/per_contig/{{contig}}.vcf.gz.csi"
+    threads: stage_resource("genotype", "threads")
+    resources:
+        mem_mb=stage_resource("genotype", "mem_mb"),
+        runtime=stage_resource("genotype", "runtime")
+    container: IMAGE
+    log: f"{OUT}/logs/genotype/{{species}}_{{contig}}.log"
+    shell:
+        """
+        export MIN_SNP_MEMORY_MB={resources.mem_mb} MIN_SNP_THREADS={threads} OMP_NUM_THREADS={threads}
+        bash stages/genotype.sh {input.ref:q} {input.db:q} {output.vcf:q} > {log:q} 2>&1
+        bcftools index -f -c {output.vcf:q} >> {log:q} 2>&1
+        bcftools index -n {output.vcf:q} >> {log:q} 2>&1
+        """
+
+rule concat:
+    input:
+        vcfs=lambda w: [f"{OUT}/joint/{w.species}/per_contig/{ctg}.vcf.gz" for ctg in CONTIGS[w.species]],
+        indices=lambda w: [f"{OUT}/joint/{w.species}/per_contig/{ctg}.vcf.gz.csi" for ctg in CONTIGS[w.species]]
+    output:
+        bcf=f"{OUT}/joint/{{species}}/cohort.raw.bcf",
+        csi=f"{OUT}/joint/{{species}}/cohort.raw.bcf.csi"
+    threads: stage_resource("concat", "threads")
+    resources:
+        mem_mb=stage_resource("concat", "mem_mb"),
+        runtime=stage_resource("concat", "runtime")
+    container: IMAGE
+    log: f"{OUT}/logs/concat/{{species}}.log"
+    shell:
+        """
+        export MIN_SNP_MEMORY_MB={resources.mem_mb} MIN_SNP_THREADS={threads}
+        bash stages/concat.sh {output.bcf:q} {input.vcfs:q} > {log:q} 2>&1
+        """
+
+rule export_vcf:
+    input:
+        bcf=f"{OUT}/joint/{{species}}/cohort.raw.bcf",
+        csi=f"{OUT}/joint/{{species}}/cohort.raw.bcf.csi"
+    output:
+        vcf=f"{OUT}/joint/{{species}}/cohort.raw.vcf.gz",
+        csi=f"{OUT}/joint/{{species}}/cohort.raw.vcf.gz.csi"
+    threads: stage_resource("export_vcf", "threads")
+    resources:
+        mem_mb=stage_resource("export_vcf", "mem_mb"),
+        runtime=stage_resource("export_vcf", "runtime")
+    container: IMAGE
+    log: f"{OUT}/logs/export/{{species}}.log"
+    shell:
+        """
+        export MIN_SNP_MEMORY_MB={resources.mem_mb} MIN_SNP_THREADS={threads}
+        bash stages/export_vcf.sh {input.bcf:q} {output.vcf:q} > {log:q} 2>&1
+        """
+
+rule validate_cohort:
+    input:
+        bcf=f"{OUT}/joint/{{species}}/cohort.raw.bcf",
+        bcf_index=f"{OUT}/joint/{{species}}/cohort.raw.bcf.csi",
+        vcf=f"{OUT}/joint/{{species}}/cohort.raw.vcf.gz",
+        vcf_index=f"{OUT}/joint/{{species}}/cohort.raw.vcf.gz.csi"
+    output:
+        f"{OUT}/joint/{{species}}/cohort.validation.json"
+    threads: 1
+    resources: mem_mb=2000, runtime=60
+    params:
+        samples=lambda w: SAMPLES[w.species],
+        contigs=lambda w: CONTIGS[w.species]
+    container: IMAGE
+    log: f"{OUT}/logs/validate/{{species}}.log"
+    shell:
+        """
+        python workflow/scripts/validate_vcf.py --bcf {input.bcf:q} --vcf {input.vcf:q} \
+          --species {wildcards.species:q} --samples {params.samples:q} --contigs {params.contigs:q} \
+          --output {output:q} > {log:q} 2>&1
+        """
+
+rule software_versions:
+    input:
+        preflight=PREFLIGHT
+    output:
+        f"{OUT}/software_versions.json"
+    threads: 1
+    resources: mem_mb=2000, runtime=60
+    container: IMAGE
+    log: f"{OUT}/logs/versions.log"
+    shell:
+        """
+        python workflow/scripts/software_versions.py {output:q} > {log:q} 2>&1
+        """
+
+if QC:
+    for k in ("min_dp", "min_gq", "max_missing", "min_maf"):
+        if k not in QC_SETTINGS:
+            raise ValueError(f"Set qc.{k} in config/snakemake.yaml")
+    rule variant_qc:
+        input:
+            ref=ref_of,
+            vcf=f"{OUT}/joint/{{species}}/cohort.raw.vcf.gz",
+            csi=f"{OUT}/joint/{{species}}/cohort.raw.vcf.gz.csi"
+        output:
+            norm=f"{OUT}/qc/{{species}}/normalized.bcf",
+            norm_index=f"{OUT}/qc/{{species}}/normalized.bcf.csi",
+            filtered=f"{OUT}/qc/{{species}}/filtered.bcf",
+            filtered_index=f"{OUT}/qc/{{species}}/filtered.bcf.csi"
+        threads: stage_resource("variant_qc", "threads")
+        resources:
+            mem_mb=stage_resource("variant_qc", "mem_mb"),
+            runtime=stage_resource("variant_qc", "runtime")
+        params:
+            contigs=lambda w: ",".join(CONTIGS[w.species]),
+            dp=int(QC_SETTINGS["min_dp"]), gq=int(QC_SETTINGS["min_gq"]),
+            missing=float(QC_SETTINGS["max_missing"]), maf=float(QC_SETTINGS["min_maf"])
+        container: IMAGE
+        log: f"{OUT}/logs/qc/{{species}}.log"
+        shell:
+            """
+            export MIN_SNP_MEMORY_MB={resources.mem_mb} MIN_SNP_THREADS={threads}
+            bash stages/qc.sh {input.ref:q} {input.vcf:q} {output.norm:q} {output.filtered:q} \
+              {params.dp} {params.gq} {params.missing} {params.maf} {params.contigs:q} > {log:q} 2>&1
+            """
+
+    rule variant_qc_stats:
+        input:
+            bcf=f"{OUT}/qc/{{species}}/filtered.bcf",
+            index=f"{OUT}/qc/{{species}}/filtered.bcf.csi"
+        output:
+            f"{OUT}/qc/{{species}}/bcftools.stats.txt"
+        threads: 1
+        resources: mem_mb=2000, runtime=120
+        container: IMAGE
+        log: f"{OUT}/logs/qc_stats/{{species}}.log"
+        shell:
+            """
+            bcftools stats -s - {input.bcf:q} > {output:q} 2> {log:q}
+            """

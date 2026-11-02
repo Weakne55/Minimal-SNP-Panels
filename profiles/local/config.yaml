@@ -1,0 +1,7 @@
+# Snakemake orchestration runs on the host; tools run via Apptainer.
+executor: local
+cores: 16
+use-apptainer: true
+rerun-incomplete: true
+printshellcmds: true
+latency-wait: 60

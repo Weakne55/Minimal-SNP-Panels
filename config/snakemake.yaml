@@ -1,0 +1,37 @@
+# Example workflow settings. Override paths and run_id via --config or wrapper.
+run_id: pilot_snakemake
+outdir: results
+manifests:
+  - inputs/beluga_two.fastq.tsv
+  - inputs/polar_bear_two.fastq.tsv
+references: config/references.yaml
+pipeline_settings: config/pipeline.yaml
+
+# Absolute .sif path is recommended in production. Must be available to every node.
+# First build/pull the image as described in docs/SNAKEMAKE_SINGULARITY.md.
+container_image: containers/wgs-gatk-mem3.sif
+
+# Original pipeline's fastp step is disabled unless enabled below.
+trim_fastq: false
+# Additional technical filtering is optional (not required for raw cohort VCF).
+variant_qc: false
+qc:
+  min_dp: 8
+  min_gq: 20
+  max_missing: 0.1
+  min_maf: 0.01
+
+# Each Snakemake rule is a separate SLURM job. Fine tune these per rule.
+# If omitted, values are inherited from slurm.sample / slurm.joint in pipeline_settings.
+stage_resources:
+  trim:           {threads: 8,  mem_mb: 16000, runtime: 240}
+  align:          {threads: 16, mem_mb: 64000, runtime: 2880}
+  merge_bam:      {threads: 8,  mem_mb: 16000, runtime: 300}
+  markdup:        {threads: 8,  mem_mb: 32000, runtime: 420}
+  bam_qc:         {threads: 4,  mem_mb: 8000,  runtime: 360}
+  haplotypecaller: {threads: 8,  mem_mb: 32000, runtime: 1440}
+  genomicsdb:     {threads: 8,  mem_mb: 48000, runtime: 1440}
+  genotype:       {threads: 8,  mem_mb: 32000, runtime: 1440}
+  concat:         {threads: 4,  mem_mb: 8000,  runtime: 240}
+  export_vcf:     {threads: 4,  mem_mb: 8000,  runtime: 240}
+  variant_qc:     {threads: 4,  mem_mb: 16000, runtime: 480}
