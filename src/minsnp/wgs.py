@@ -189,7 +189,7 @@ def run(sheet: str, species: str, spec: dict, cfg: dict, out: Path, logs: Path, 
         final = out / "bam" / f"{sample}.bam"
         if not _valid_bam(final, index=True):
             quarantine_incomplete(final)
-            stage("markdup.sh", [merged, final, out / "qc" / f"{sample}.dup.txt", cpu("markdup")], logs, f"markdup_{sample}", cfg=cfg)
+            stage("markdup.sh", [merged, final, out / "qc" / f"{sample}.dupblaster", cpu("markdup")], logs, f"markdup_{sample}", cfg=cfg)
         if not _valid_bam(final, index=True):
             raise RuntimeError(f"Некорректный markdup BAM: {final}")
 
@@ -197,7 +197,7 @@ def run(sheet: str, species: str, spec: dict, cfg: dict, out: Path, logs: Path, 
         qc_outputs = [
             Path(f"{prefix}.flagstat.txt"),
             Path(f"{prefix}.stats.txt"),
-            Path(f"{prefix}.mosdepth.summary.txt"),
+            Path(f"{prefix}.chr.stat.gz"),
         ]
         if not resume or not all(p.is_file() and p.stat().st_size for p in qc_outputs):
             stage("bam_qc.sh", [final, prefix, cpu("bam_qc")], logs, f"qc_{sample}", cfg=cfg)

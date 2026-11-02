@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Назначение: BAM QC (flagstat, stats и mosdepth).
+# BAM QC: samtools flagstat/stats и PanDepth по всем contigs.
 # Usage: bam_qc.sh INPUT.bam OUTPUT_PREFIX THREADS
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/resource_lib.bash"
@@ -11,8 +11,15 @@ input_bam=$1
 prefix=$2
 threads=$3
 minsnp_check_threads "$threads"
+samtools quickcheck -v "$input_bam"
 mkdir -p "$(dirname "$prefix")"
 workers=$(minsnp_samtools_workers "$threads")
+# Сначала пишем служебные метрики; результат PanDepth проверяем отдельно.
 samtools flagstat -@ "$workers" "$input_bam" > "${prefix}.flagstat.txt"
 samtools stats -@ "$workers" "$input_bam" > "${prefix}.stats.txt"
-mosdepth -t "$threads" -n "$prefix" "$input_bam"
+pandepth -i "$input_bam" -o "$prefix" -t "$threads"
+[[ -s "${prefix}.chr.stat.gz" ]] || {
+    echo "PanDepth не создал сводку покрытия: ${prefix}.chr.stat.gz" >&2
+    exit 1
+}
+gzip -t "${prefix}.chr.stat.gz"

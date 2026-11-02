@@ -79,8 +79,15 @@ def capture_versions(names: list[str]) -> dict[str, str]:
             continue
         try:
             cmd = {"gatk": [name, "--version"], "bwa-mem3": [name, "version"]}.get(name, [name, "--version"])
+            if name == "pandepth":
+                cmd = [name, "-h"]  # PanDepth печатает версию в конце справки: [v2.26].
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-            versions[name] = (result.stdout + result.stderr).strip().splitlines()[0][:240]
+            output = (result.stdout + result.stderr).strip()
+            if name == "pandepth":
+                version = re.search(r"\[v(\d+(?:\.\d+)+)\]", output)
+                versions[name] = f"PanDepth {version.group(1)}" if version else output.splitlines()[0][:240]
+            else:
+                versions[name] = output.splitlines()[0][:240]
         except (OSError, subprocess.TimeoutExpired, IndexError):
             versions[name] = str(exe)
     return versions

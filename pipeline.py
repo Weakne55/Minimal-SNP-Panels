@@ -113,7 +113,7 @@ def run_fastq(args: argparse.Namespace) -> int:
                                   args.settings, cfg, resume=args.resume)
     versions_file = run_dir / 'versions.json'
     if not versions_file.exists():
-        versions = capture_versions(['bwa-mem3', 'samtools', 'bcftools', 'gatk', 'fastp', 'mosdepth'])
+        versions = capture_versions(['bwa-mem3', 'samtools', 'bcftools', 'gatk', 'fastp', 'pandepth', 'dupblaster'])
         versions_file.write_text(json.dumps(versions, ensure_ascii=False, indent=2) + '\n')
     if args.backend == 'slurm':
         if args.resume and (run_dir / 'slurm_jobs.json').exists():
@@ -135,7 +135,7 @@ def run_fastq(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.check_tools:
-        print(json.dumps(capture_versions(['bwa-mem3', 'samtools', 'bcftools', 'gatk', 'fastp', 'mosdepth']),
+        print(json.dumps(capture_versions(['bwa-mem3', 'samtools', 'bcftools', 'gatk', 'fastp', 'pandepth', 'dupblaster']),
                          indent=2, ensure_ascii=False))
         return 0
     if args.command == '_worker':

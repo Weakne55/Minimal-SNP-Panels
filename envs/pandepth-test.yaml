@@ -1,0 +1,9 @@
+# PanDepth 2.26 (Bioconda) связан с HTSlib 1.23.x.
+# Отдельная среда не меняет самtools/bcftools 1.24 основного pipeline.
+name: minsnp-pandepth
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - pandepth=2.26
