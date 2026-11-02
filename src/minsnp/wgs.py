@@ -1,6 +1,6 @@
 """FASTQ (несколько runs на sample) → BAM → хромосомные gVCF.
 
-Usage: вызывается из CLI командой ``run_pipeline.sh wgs-vcf --fastq ...``.
+Вызывается главным Python CLI; каждая операция выполняется для одного животного.
 Вход: TSV sample_id, species, run_id, library, fastq_r1, fastq_r2.
 Выход: BAM каждого sample, QC и gvcf_manifest.tsv.
 """
@@ -12,6 +12,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from .core import check_index, file_exists, identifier, read_tsv, stage, write_tsv
+from .resources import stage_effective
 
 
 def validate_fastq(sheet: str, species: str) -> dict[str, list[dict[str, str]]]:
@@ -43,6 +44,61 @@ def validate_fastq(sheet: str, species: str) -> dict[str, list[dict[str, str]]]:
             resolved[key] = str(filename)
         grouped[sample].append(resolved)
     return dict(grouped)
+
+
+def load_cohort(sheets: list[str | Path]) -> dict[str, dict[str, list[dict[str, str]]]]:
+    """Собрать животных нескольких видов из одного или нескольких TSV.
+
+    В рамках одного запуска идентификатор животного может принадлежать
+    только одному виду. Один и тот же FASTQ запрещено использовать дважды.
+    """
+    cohort: dict[str, dict[str, list[dict[str, str]]]] = {}
+    used_files: set[Path] = set()
+    used_units: set[tuple[str, str, str]] = set()
+    sample_species: dict[str, str] = {}
+    for sheet in sheets:
+        path = Path(sheet).expanduser().resolve()
+        rows = read_tsv(path, ('sample_id', 'species', 'run_id', 'library', 'fastq_r1', 'fastq_r2'))
+        for row in rows:
+            sample = identifier(row['sample_id'])
+            species = identifier(row['species'])
+            run_id = identifier(row['run_id'])
+            library = identifier(row['library'])
+            if sample in sample_species and sample_species[sample] != species:
+                raise ValueError(f'Образец {sample} встречается у нескольких видов')
+            sample_species[sample] = species
+            unit = (sample, run_id, library)
+            if unit in used_units:
+                raise ValueError(f'Повторная строка sample/run/library: {unit}')
+            used_units.add(unit)
+            resolved = dict(row)
+            for key in ('fastq_r1', 'fastq_r2'):
+                filename = Path(row[key]).expanduser()
+                if not filename.is_absolute():
+                    filename = path.parent / filename
+                filename = file_exists(filename)
+                if filename in used_files:
+                    raise ValueError(f'FASTQ используется более одного раза: {filename}')
+                used_files.add(filename)
+                resolved[key] = str(filename)
+            cohort.setdefault(species, {}).setdefault(sample, []).append(resolved)
+    if not cohort:
+        raise ValueError('Нет животных в FASTQ-манифестах')
+    return cohort
+
+
+def quarantine_incomplete(path: Path) -> None:
+    """Не перезаписывать подозрительный результат; переименовать его для разбора.
+
+    Выполняется только после отрицательной проверки целостности.
+    Корректные результаты никогда не трогаем.
+    """
+    for target in (path, *(Path(str(path) + ext) for ext in ('.bai', '.csi', '.tbi'))):
+        if target.exists() or target.is_symlink():
+            index = 1
+            while Path(str(target) + f'.invalid_{index}').exists():
+                index += 1
+            target.rename(Path(str(target) + f'.invalid_{index}'))
 
 
 def _valid_bam(path: Path, index: bool = False) -> bool:
@@ -85,9 +141,12 @@ def _require_bwa_mem3_index(reference_fasta: str) -> None:
 def run(sheet: str, species: str, spec: dict, cfg: dict, out: Path, logs: Path, resume: bool) -> Path:
     """Подготовить BAM и per-contig gVCF; вернуть manifest для joint calling."""
     grouped = validate_fastq(sheet, species)
-    threads = int(cfg.get("threads", 8))
-    if threads < 2:
-        raise ValueError("Для WGS требуется threads >= 2")
+    # Число потоков у каждой стадии задаётся отдельно в pipeline.yaml.
+    def cpu(name: str) -> int:
+        return stage_effective(cfg, name)[0]
+
+    if cpu('align') < 2:
+        raise ValueError('Для align.sh требуется не менее 2 потоков')
     fasta = spec["fasta"]
     _require_bwa_mem3_index(fasta)
     manifest = []
@@ -104,15 +163,16 @@ def run(sheet: str, species: str, spec: dict, cfg: dict, out: Path, logs: Path, 
                 t1, t2 = lane / "trim_R1.fastq.gz", lane / "trim_R2.fastq.gz"
                 report = lane / "trim_R1.json"
                 if not resume or not all(p.is_file() and p.stat().st_size for p in (t1, t2, report)):
-                    stage("trim.sh", [r1, r2, t1, t2, threads], logs, f"trim_{sample}_{row['run_id']}_{row['library']}")
+                    stage("trim.sh", [r1, r2, t1, t2, cpu("trim")], logs, f"trim_{sample}_{row['run_id']}_{row['library']}", cfg=cfg)
                 r1, r2 = str(t1), str(t2)
 
             bam = lane / "fixed.bam"
-            if not resume or not _valid_bam(bam):
+            if not _valid_bam(bam):
+                quarantine_incomplete(bam)
                 stage(
                     "align.sh",
-                    [fasta, r1, r2, bam, sample, row["library"], row["run_id"], threads],
-                    logs, f"align_{sample}_{row['run_id']}_{row['library']}",
+                    [fasta, r1, r2, bam, sample, row["library"], row["run_id"], cpu("align")],
+                    logs, f"align_{sample}_{row['run_id']}_{row['library']}", cfg=cfg,
                 )
             if not _valid_bam(bam):
                 raise RuntimeError(f"Не удалось получить корректный BAM: {bam}")
@@ -120,14 +180,16 @@ def run(sheet: str, species: str, spec: dict, cfg: dict, out: Path, logs: Path, 
 
         merged = out / "bam" / f"{sample}.merged.bam"
         merged.parent.mkdir(parents=True, exist_ok=True)
-        if not resume or not _valid_bam(merged):
-            stage("merge_bam.sh", [merged, threads, *lane_bams], logs, f"merge_{sample}")
+        if not _valid_bam(merged):
+            quarantine_incomplete(merged)
+            stage("merge_bam.sh", [merged, cpu("merge_bam"), *lane_bams], logs, f"merge_{sample}", cfg=cfg)
         if not _valid_bam(merged):
             raise RuntimeError(f"Некорректный объединённый BAM: {merged}")
 
         final = out / "bam" / f"{sample}.bam"
-        if not resume or not _valid_bam(final, index=True):
-            stage("markdup.sh", [merged, final, out / "qc" / f"{sample}.dup.txt", threads], logs, f"markdup_{sample}")
+        if not _valid_bam(final, index=True):
+            quarantine_incomplete(final)
+            stage("markdup.sh", [merged, final, out / "qc" / f"{sample}.dup.txt", cpu("markdup")], logs, f"markdup_{sample}", cfg=cfg)
         if not _valid_bam(final, index=True):
             raise RuntimeError(f"Некорректный markdup BAM: {final}")
 
@@ -138,13 +200,14 @@ def run(sheet: str, species: str, spec: dict, cfg: dict, out: Path, logs: Path, 
             Path(f"{prefix}.mosdepth.summary.txt"),
         ]
         if not resume or not all(p.is_file() and p.stat().st_size for p in qc_outputs):
-            stage("bam_qc.sh", [final, prefix, threads], logs, f"qc_{sample}")
+            stage("bam_qc.sh", [final, prefix, cpu("bam_qc")], logs, f"qc_{sample}", cfg=cfg)
 
         for contig in spec["contigs"]:
             gvcf = out / "gvcf" / sample / f"{contig}.g.vcf.gz"
             gvcf.parent.mkdir(parents=True, exist_ok=True)
-            if not resume or not _valid_gvcf(gvcf):
-                stage("haplotypecaller.sh", [fasta, final, contig, gvcf, threads], logs, f"hc_{sample}_{contig}")
+            if not _valid_gvcf(gvcf):
+                quarantine_incomplete(gvcf)
+                stage("haplotypecaller.sh", [fasta, final, contig, gvcf, cpu("haplotypecaller")], logs, f"hc_{sample}_{contig}", cfg=cfg)
             if not _valid_gvcf(gvcf):
                 raise RuntimeError(f"Некорректный gVCF или индекс: {gvcf}")
             manifest.append((sample, contig, str(gvcf.resolve())))

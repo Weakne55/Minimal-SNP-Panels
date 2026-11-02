@@ -12,9 +12,6 @@ dependencies = ["PyYAML>=6", "numpy>=2", "scikit-learn>=1.5", "matplotlib>=3.9"]
 [project.optional-dependencies]
 test = ["pytest>=8"]
 
-[project.scripts]
-minsnp = "minsnp.cli:main"
-
 [tool.setuptools.packages.find]
 where = ["src"]
 

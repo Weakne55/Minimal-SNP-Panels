@@ -95,3 +95,33 @@ data/wgs/
 /tools/
 *.bak
 *.status.bak
+
+# minsnp: local HPC outputs
+# Большие данные и результаты анализов остаются на сервере.
+/data/wgs/
+/results/
+/legacy/
+/tools/
+/tests/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.egg-info/
+*.bak
+*.log
+*.out
+*.fastq
+*.fastq.gz
+*.fq
+*.fq.gz
+*.bam
+*.bai
+*.cram
+*.crai
+*.bcf
+*.bcf.csi
+*.vcf.gz
+*.vcf.gz.csi
+*.g.vcf.gz
+*.g.vcf.gz.tbi
+/wgs_test/wgs_pilot.py

@@ -1,24 +1,20 @@
-threads: 8
+# Один SLURM array на все образцы, независимо от вида.
+# Хромосомы внутри WGS и joint обрабатываются последовательно.
 trim_fastq: false
-# Настройки QC задаются осторожно, под тип и покрытие исходных данных.
-qc:
-  min_gq: 20
-  min_dp: 5
-  max_missing: 0.2
-  min_maf: 0.01
-structure:
-  ld_window_kb: 200
-  ld_step: 1
-  ld_r2: 0.2
-  max_clusters: 6
-  random_state: 42
-panels:
-  sizes: [10, 20, 50, 100, 200]
-  folds: 5
-  seed: 42
-  ld_r2: 0.2
-  selection_pool: 5000
+
 slurm:
-  partition: ""
-  time: "7-00:00:00"
-  memory: 64G
+  partition: main
+  nodelist: meduza-1  # Узел должен поддерживать AVX2 для BWA-MEM3
+  max_parallel_samples: 3
+
+  # CPU/RAM и предельное время отдельного животного.
+  sample:
+    cpus: 16
+    memory: 64G
+    time: "2-00:00:00"
+
+  # CPU/RAM и предельное время joint-обработки одного вида.
+  joint:
+    cpus: 8
+    memory: 48G
+    time: "2-00:00:00"

@@ -1,0 +1,35 @@
+# Не включать исходные геномные данные и рассчитанные результаты в образ.
+data/
+results/
+*.fastq
+*.fastq.gz
+*.fq.gz
+*.bam
+*.bai
+*.cram
+*.bcf
+*.vcf.gz
+*.g.vcf.gz
+*.csi
+*.tbi
+
+# Не включать историю и локальные промежуточные файлы разработки.
+.git/
+legacy/
+tools/
+wgs_test/
+tests/
+.pytest_cache/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+*.log
+*.out
+*.err
+*.zip
+*.tar.gz
+.minsnp_backups/
+_minsnp_patch_backups/
+.venv/

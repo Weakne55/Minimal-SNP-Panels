@@ -20,7 +20,7 @@ def run(vcf: Path, fasta: str, contigs: list[str], cfg: dict, out: Path, logs: P
         selected = [c for c in contigs if c in present]
         if not selected:
             raise ValueError("В VCF нет аутосом, указанных для выбранной сборки")
-        stage("qc.sh", [fasta, vcf, normalized, filtered, q["min_dp"], q["min_gq"], q["max_missing"], q["min_maf"], ",".join(selected)], logs, "variant_qc")
+        stage("qc.sh", [fasta, vcf, normalized, filtered, q["min_dp"], q["min_gq"], q["max_missing"], q["min_maf"], ",".join(selected)], logs, "variant_qc", cfg=cfg)
     if not resume or not (out / "bcftools.stats.txt").is_file():
         with (out / "bcftools.stats.txt").open("w") as fh:
             subprocess.run(["bcftools", "stats", "-s", "-", str(filtered)], stdout=fh, check=True)

@@ -4,7 +4,9 @@ from pathlib import Path
 from collections import defaultdict
 import subprocess
 import json
+import shutil
 from .core import check_index, file_exists, identifier, read_tsv, samples_in_vcf, stage
+from .wgs import quarantine_incomplete
 
 
 def validate_gvcf(sheet: Path, contigs: list[str], fasta: str) -> dict[str, list[tuple[str, str]]]:
@@ -43,7 +45,7 @@ def validate_gvcf(sheet: Path, contigs: list[str], fasta: str) -> dict[str, list
     return dict(by_contig)
 
 
-def run(sheet: Path, spec: dict, out: Path, logs: Path, resume: bool) -> Path:
+def run(sheet: Path, spec: dict, out: Path, logs: Path, resume: bool, cfg: dict | None = None) -> Path:
     mapping = validate_gvcf(sheet, spec["contigs"], spec["fasta"])
     out.mkdir(parents=True, exist_ok=True)
     signature = {"assembly": spec["assembly"], "fasta": spec["fasta"], "entries": []}
@@ -69,21 +71,34 @@ def run(sheet: Path, spec: dict, out: Path, logs: Path, resume: bool) -> Path:
         db = out / "genomicsdb" / contig
         vcf = out / "per_contig" / f"{contig}.vcf.gz"
         vcf.parent.mkdir(parents=True, exist_ok=True)
-        if vcf.is_file() and not (Path(str(vcf) + ".tbi").is_file() or Path(str(vcf) + ".csi").is_file()):
-            raise ValueError(f"VCF существует, но индекс отсутствует: {vcf}")
-        if not resume or not vcf.is_file():
-            if db.exists():
-                if not resume or not (db / ".completed").is_file():
-                    raise ValueError(f"Незавершённый/чужой GenomicsDB: {db}. Используйте новый run-id")
-            else:
-                stage("genomicsdb.sh", [spec["fasta"], contig, samplemap, db], logs, f"import_{contig}")
-            stage("genotype.sh", [spec["fasta"], db, vcf], logs, f"genotype_{contig}")
+        # Если GATK был прерван, частичный VCF не считается готовым.
+        valid_vcf = vcf.is_file() and (Path(str(vcf) + '.tbi').is_file() or
+                                       Path(str(vcf) + '.csi').is_file())
+        if valid_vcf:
+            valid_vcf = subprocess.run(['bcftools', 'index', '-n', str(vcf)],
+                                       capture_output=True).returncode == 0
+        if not valid_vcf:
+            quarantine_incomplete(vcf)
+            if db.exists() and not (db / '.completed').is_file():
+                # Удаляется только незавершённая БД своего run-id и contig.
+                if db.parent.resolve() != (out / 'genomicsdb').resolve():
+                    raise ValueError(f'Небезопасный путь GenomicsDB: {db}')
+                shutil.rmtree(db)
+            if not db.exists():
+                stage('genomicsdb.sh', [spec['fasta'], contig, samplemap, db],
+                      logs, f'import_{contig}', cfg=cfg)
+            stage('genotype.sh', [spec['fasta'], db, vcf], logs,
+                  f'genotype_{contig}', cfg=cfg)
+        check_index(vcf)
         contig_vcfs.append(vcf)
     result = out / "cohort.raw.bcf"
-    if result.exists() and not Path(str(result) + ".csi").is_file():
-        raise ValueError(f"BCF существует, но индекс отсутствует: {result}")
-    if not resume or not result.exists():
-        stage("concat.sh", [result, *contig_vcfs], logs, "concat")
+    valid_result = result.is_file() and Path(str(result) + '.csi').is_file()
+    if valid_result:
+        valid_result = subprocess.run(['bcftools', 'index', '-n', str(result)],
+                                      capture_output=True).returncode == 0
+    if not valid_result:
+        quarantine_incomplete(result)
+        stage('concat.sh', [result, *contig_vcfs], logs, 'concat', cfg=cfg)
     check_index(result)
     expected = {sample for items in mapping.values() for sample, _ in items}
     observed = samples_in_vcf(result)

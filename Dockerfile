@@ -1,8 +1,18 @@
-FROM mambaorg/micromamba:latest
+# Контейнер используется для воспроизводимого локального запуска FASTQ → VCF.
+# На HPC с SLURM по-прежнему можно использовать установленное Conda-окружение.
+FROM mambaorg/micromamba:2.9.0
+
+# Используем ту же спецификацию зависимостей, что и на сервере.
 COPY --chown=$MAMBA_USER:$MAMBA_USER envs/wgs-gatk-mem3.yaml /tmp/environment.yaml
-RUN micromamba create -y -f /tmp/environment.yaml && micromamba clean --all --yes
-COPY --chown=$MAMBA_USER:$MAMBA_USER . /app
+RUN micromamba create --yes --file /tmp/environment.yaml && \
+    micromamba clean --all --yes
+
+# FASTQ, референсы и результаты не включаем в образ (см. .dockerignore).
 WORKDIR /app
-ARG MAMBA_DOCKERFILE_ACTIVATE=1
-RUN micromamba run -n wgs-gatk-mem3 python -m pip install --no-deps -e .
-ENTRYPOINT ["micromamba", "run", "-n", "wgs-gatk-mem3", "./run_pipeline.sh"]
+COPY --chown=$MAMBA_USER:$MAMBA_USER . /app
+
+# pipeline.py самостоятельно добавляет src/ в sys.path; pip install не нужен.
+
+# Новый пользовательский интерфейс; параметры docker run передаются pipeline.py.
+ENTRYPOINT ["/usr/local/bin/_entrypoint.sh", "micromamba", "run", "-n", "wgs-gatk-mem3", "python", "/app/pipeline.py"]
+CMD ["--help"]

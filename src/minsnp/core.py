@@ -1,15 +1,12 @@
 """Контракты, запуск программ и воспроизводимость."""
 from __future__ import annotations
 import csv
-import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
-import sys
-import time
 
 import yaml
 
@@ -89,44 +86,26 @@ def capture_versions(names: list[str]) -> dict[str, str]:
     return versions
 
 
-def call(args: list[str], logdir: Path, name: str) -> None:
+def call(args: list[str], logdir: Path, name: str, env: dict[str, str] | None = None) -> None:
     logdir.mkdir(parents=True, exist_ok=True)
     logfile = logdir / f"{name}.log"
     with logfile.open("a", encoding="utf-8") as log:
         log.write("\n$ " + " ".join(__import__("shlex").quote(x) for x in args) + "\n")
         log.flush()
-        proc = subprocess.run(args, stdout=log, stderr=subprocess.STDOUT, check=False)
+        proc = subprocess.run(args, stdout=log, stderr=subprocess.STDOUT, check=False, **({"env": env} if env is not None else {}))
     if proc.returncode:
         raise RuntimeError(f"Ошибка этапа {name}, код {proc.returncode}; лог: {logfile}")
 
 
-def stage(script: str, args: list[str], logdir: Path, name: str) -> None:
-    call(["bash", str(ROOT / "stages" / script), *map(str, args)], logdir, name)
-
-
-def source_fingerprint(path: str | Path | None) -> str | None:
-    if path is None:
-        return None
-    p = file_exists(path)
-    # Для крупных VCF/FASTQ не считаем полный SHA256: для них фиксируем размер и mtime.
-    if p.stat().st_size > 10_000_000:
-        stat = p.stat()
-        return f"size={stat.st_size};mtime_ns={stat.st_mtime_ns}"
-    return hashlib.sha256(p.read_bytes()).hexdigest()
-
-
-def prepare_run(base: Path, species: str, run_id: str, inputs: dict, resume: bool) -> Path:
-    run = base / identifier(species) / identifier(run_id)
-    run.mkdir(parents=True, exist_ok=True)
-    state = run / "run.json"
-    obj = {"species": species, "inputs": inputs}
-    if state.exists():
-        prev = json.loads(state.read_text())
-        if prev != obj or not resume:
-            raise ValueError(f"Каталог уже существует; для того же запуска используйте --resume: {run}")
-    else:
-        state.write_text(json.dumps(obj, indent=2, ensure_ascii=False) + "\n")
-    return run
+def stage(script: str, args: list[str], logdir: Path, name: str, cfg: dict | None = None) -> None:
+    """Вызвать Bash-стадию с собственным ресурсным бюджетом из YAML."""
+    env = None
+    if cfg is not None:
+        from .resources import stage_effective
+        cpus, memory = stage_effective(cfg, script)
+        env = dict(os.environ, MIN_SNP_THREADS=str(cpus),
+                   MIN_SNP_MEMORY_MB=str(memory), OMP_NUM_THREADS=str(cpus))
+    call(["bash", str(ROOT / "stages" / script), *map(str, args)], logdir, name, env=env)
 
 
 def require_commands(*commands: str) -> None:
