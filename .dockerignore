@@ -33,3 +33,8 @@ __pycache__/
 .minsnp_backups/
 _minsnp_patch_backups/
 .venv/
+runs/
+config/references.yaml
+config/pipeline_meduza.yaml
+config/*.local.yaml
+.patch_backups/

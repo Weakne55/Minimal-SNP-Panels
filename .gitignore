@@ -45,3 +45,17 @@ build/
 /tools/
 
 .patch_backups/
+/config/references.yaml
+/config/pipeline_meduza.yaml
+/config/*.local.yaml
+/inputs/*.tsv
+!/inputs/fastq.template.tsv
+!/inputs/population_labels.template.tsv
+/data/
+/wgs_test/
+/.patch_backups/
+/stages/concat.sh
+/docs/REFACTORING.md
+/inputs/gvcf_manifest.template.tsv
+.env
+.env.*

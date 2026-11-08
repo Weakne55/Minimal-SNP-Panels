@@ -8,7 +8,7 @@ logging:
 
 slurm:
   partition: main
-  nodelist: meduza-1  # Нужна поддержка AVX2 для BWA-MEM3
+  # nodelist: orthrus-1  # optional
   max_concurrent_jobs: 3
   stages:
     trim:            {cpus: 4,  memory: 8G,  time: '12:00:00'}

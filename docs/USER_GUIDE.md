@@ -1,12 +1,10 @@
-> **Текущий статус:** FASTQ → VCF реализован; VCF → structure и VCF + metadata → SNP panel — заглушки. Описания аналитических алгоритмов ниже относятся к прежней версии и не отражают текущую реализацию.
-
 # Руководство по эксплуатации — Minimal SNP Panels
 
 Подробные инструкции к Bash/Python-конвейеру для получения совместного VCF/BCF из полногеномных FASTQ и разработки минимальных SNP-панелей, разделяющих генетические популяции белухи (*Delphinapterus leucas*) и белого медведя (*Ursus maritimus*).
 
 **Версия документации:** ветка `develop`, архитектура поэтапных SLURM arrays (ноябрь 2026). Все команды ниже выполняются **из корня репозитория**, если не указано иное. Замените пути, раздел SLURM и ресурсы на значения своего кластера.
 
-> **Статус разработки.** `FASTQ → VCF/BCF` реализован, но для этой версии требуется реальный end-to-end тест на HPC. `VCF → population structure` пока **заглушка** (PCA и метки не создаются). `VCF + metadata → SNP panel` подключён к QC и классификации, работает **локально**, но тоже требует проверки на реальных данных. Не интерпретируйте наличие кода как завершённую научную валидацию.
+> **Статус:** FASTQ → VCF успешно проверен на одном WGS; оба аналитических режима — заглушки.
 
 ## Содержание
 
@@ -27,9 +25,9 @@
 
 | Команда | Вход | Результат | Текущее состояние |
 |---|---|---|---|
-| `--fastq` | TSV со ссылками на paired-end FASTQ | BAM, QC, gVCF по образцу, совместные VCF.gz и BCF по виду | Реализован; HPC E2E ещё не подтверждён |
+| `--fastq` | TSV со ссылками на paired-end FASTQ | BAM, QC, gVCF по образцу, совместные VCF.gz и BCF по виду | Проверен на одном WGS; научная валидация не завершена |
 | `--vcf` | Индексированный multi-sample VCF.gz/BCF | В будущем: PCA/кластеризация и `population_labels.tsv` | Заглушка: код возврата `2` |
-| `--vcf --metadata --species` | Индексированный VCF/BCF + таблица популяций | QC, оценка SNP-панелей, CV, модель | Реализован локально; без SLURM и без E2E-валидации |
+| `--vcf --metadata --species` | Индексированный VCF/BCF + таблица популяций | QC, оценка SNP-панелей, CV, модель | Не реализован (заглушка) |
 
 Вариант `--labels` — синоним `--metadata`. Виды не объединяются в одном joint VCF. Стадии WGS:
 
@@ -571,76 +569,21 @@ python pipeline.py --vcf /absolute/path/to/cohort.raw.bcf
 
 ## 10. Режим VCF + metadata → SNP panel
 
-### 10.1. Подготовить VCF и population labels
-
-Нужен **индексированный** мультисэмпловый `.bcf` либо `.vcf.gz` той же сборки, что `config/references.yaml`. Индекс можно построить `bcftools index -f /path/to/cohort.raw.bcf` или `bcftools index -f /path/to/cohort.raw.vcf.gz` (создаёт CSI по умолчанию).
-
-Файл metadata/labels — **TSV** со столбцами:
-
-```tsv
-sample_id	population	group
-SAMN51337163	POP_A	SITE_1
-SAMN51337170	POP_B	SITE_2
-```
-
-Это **лишь пример формата**, а не настоящие популяционные метки указанных образцов. Заполните **реальными установленными метками**. `sample_id` должны **в точности** соответствовать `bcftools query -l VCF`: без дубликатов, пропусков и лишних особей. `group` — необязательный идентификатор независимой группы для `StratifiedGroupKFold` (например, связанная партия/родственная группа); либо заполните его у **всех** образцов, либо не используйте. Требуется не менее **двух** образцов **в каждой** популяции; для надёжных оценок их обычно необходимо значительно больше.
-
-### 10.2. Запуск панели (только local backend)
+Этот режим пока не реализован.
 
 ```bash
 python pipeline.py \
-  --vcf results/pilot_01/joint/beluga/cohort.raw.bcf \
-  --metadata inputs/population_labels.tsv \
-  --species beluga \
-  --backend local \
-  --run-id beluga_panel_01
+  --vcf /absolute/path/to/cohort.raw.bcf \
+  --metadata /absolute/path/to/population_labels.tsv \
+  --species polar_bear
 ```
 
-Для медведя укажите `--species polar_bear`, соответствующий VCF и metadata. Этот режим **не запускает SLURM** и может требовать большой объём локальной RAM/диска; запускайте его на подходящем вычислительном узле, а не на login-node. Вариант `--labels` равнозначен `--metadata`.
+Команда завершается `NotImplementedError`.
 
-### 10.3. Что делает аналитический режим
+SNP-level QC, ранжирование SNP, LD filtering,
+classification и CV пока не выполняются.
 
-1. `qc.py`: извлекает аутосомы, нормализует REF/ALT по FASTA, маскирует генотипы с недостаточными `DP`/`GQ` (если поля есть), оставляет биаллельные SNP с заданными `max_missing` и `min_maf`.
-2. `panels.py`: формирует дозировки ALT-аллеля `0/1/2` (пропуски `-1`), вычисляет **Nei-style FST-подобный score**, ранжирует SNP и выполняет LD-отбор с порогом `ld_r2`. Этот score **не следует приравнивать** к несмещённой оценке FST Вейра–Кокерхема.
-3. Оценивает Logistic Regression по `StratifiedKFold` либо `StratifiedGroupKFold`. Ранжирование и LD-отбор **внутри train-fold**, чтобы избежать утечки SNP selection в CV.
-4. Сравнивает размеры панелей `panels.sizes`, пытается выполнить nested CV для оценки процедуры выбора размера, обучает финальную модель и сохраняет итоговую панель.
-
-### 10.4. Выходы и интерпретация
-
-```text
-results/beluga_panel_01/
-├── analysis_plan.json                  # входы/sha256/config/code
-├── logs/pipeline.log                   # этапы и ошибки Python
-├── logs/qc/variant_qc.log              # команды и вывод bcftools
-├── qc/
-│   ├── normalized.bcf[.csi]           # нормализованные варианты на аутосомах
-│   ├── filtered.bcf[.csi]             # SNP после технического QC
-│   ├── bcftools.stats.txt
-│   ├── sample_qc.tsv                   # если bcftools stats выдал PSC
-│   └── qc_summary.tsv                  # число SNP / образцов
-└── panels/
-    ├── features/genotypes.i8           # бинарная SNP × sample матрица дозировок
-    ├── features/variants.tsv           # координаты SNP в том же порядке
-    ├── cv_metrics.tsv                  # по fold и размеру: balanced accuracy, macro-F1
-    ├── cv_predictions.tsv              # true/pred для каждого test sample/fold
-    ├── fold_selections.tsv             # SNP, выбранные в каждом train fold
-    ├── panel_size_summary.tsv          # средняя balanced accuracy по размерам
-    ├── nested_cv_metrics.tsv           # если хватило данных для nested CV
-    ├── nested_cv_unavailable.txt       # иначе объяснение, почему nested CV не удалось
-    ├── minimal_panel.tsv               # ИТОГ: assembly_id, contig, pos, ref, alt, score
-    ├── model.joblib                    # обученная модель и метаданные SNP
-    ├── panel_selection.json            # причина выбора размера, результаты CV
-    ├── LIMITATIONS.txt                 # ограничения интерпретации
-    ├── accuracy_vs_panel_size.png
-    └── confusion_matrix_<size>.png
-```
-
-- `minimal_panel.tsv` — конечный **набор позиций** в координатах конкретной сборки; `target_size` может отличаться от **фактического** числа SNP после LD-фильтрации.
-- `cv_metrics.tsv`: `balanced_accuracy` — средняя полнота по классам, полезна при несбалансированности; `macro_f1` — среднее F1 по популяциям. Значения CV не являются гарантией качества на новых независимых животных.
-- `cv_predictions.tsv` и `confusion_matrix_*.png` позволяют увидеть, какие популяции путаются и какие образцы ошибочно классифицированы.
-- `nested_cv_metrics.tsv` — если доступен, независимая outer-fold оценка **процедуры подбора размера панели**; если вместо него `nested_cv_unavailable.txt`, такой оценки **нет**.
-- `model.joblib` — сериализованная Python-модель, **не универсальный формат диагностического теста**. Загружайте только из доверенных источников и в совместимой версии программ.
-- Если population labels получены на **тех же WGS**, CV проверяет способность воспроизводить полученные генетические группы; это **не** независимая проверка географической принадлежности или внешняя валидация.
+Выходные панели, модели и графики не создаются.
 
 ## 11. Ошибки, возобновление и воспроизводимость
 

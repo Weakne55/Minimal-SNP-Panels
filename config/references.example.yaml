@@ -1,7 +1,8 @@
+# Скопируйте в references.yaml и задайте реальные пути FASTA.
 species:
   beluga:
     assembly: GCA_059928025.1
-    fasta: /mnt/tank/scratch/plem/data/genomes/Delphinapterus_leucas_GCA_059928025.1/ncbi_dataset/data/GCA_059928025.1/GCA_059928025.1_BTC_Dleu_Yukka2_genomic.fna
+    fasta: /absolute/path/to/beluga/reference_genomic.fna
     contigs:
     - CM187741.1
     - CM187742.1
@@ -26,7 +27,7 @@ species:
     - CM187761.1
   polar_bear:
     assembly: GCA_062004589.1
-    fasta: /mnt/tank/scratch/plem/data/genomes/Ursus_maritimus_GCA_062004589.1/ncbi_dataset/data/GCA_062004589.1/GCA_062004589.1_BTC_Umar_Aika3_genomic.fna
+    fasta: /absolute/path/to/polar_bear/reference_genomic.fna
     contigs:
     - CM197969.1
     - CM197970.1

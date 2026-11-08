@@ -21,7 +21,7 @@ FASTQ R1/R2
   → export_vcf                            один VCF.gz на вид
 
 VCF/BCF → population structure            заглушка, без фиктивных результатов
-VCF/BCF + metadata → QC → SNP ranking → LD selection → CV → minimal panel
+VCF/BCF + metadata → SNP panel            заглушка
 ```
 
 ## Быстрый старт на HPC
@@ -72,7 +72,7 @@ unzip -n data/references/polar_bear/ncbi_dataset.zip -d data/references/polar_be
 find data/references -name '*_genomic.fna'
 ```
 
-Для каждого полученного FASTA выполнить **на compute node**, а не на login node: 
+Для каждого полученного FASTA выполнить: 
 
 ```bash
 conda activate wgs-gatk-mem3
@@ -87,9 +87,7 @@ bwa-mem3 index /absolute/path/to/reference_genomic.fna
 
 Повторите для обоих видов. Задайте реальные **абсолютные пути** `species.*.fasta`
 в `config/references.yaml`. Существующие списки `contigs` в этом YAML не
-меняйте: они определяют нужные аутосомы. Скрипт
-`wgs_test/genome_reference_setup/setup_genomes.sh` использует старый BWA index
-и **не заменяет** команду `bwa-mem3 index`.
+меняйте: они определяют нужные аутосомы. 
 
 Если индексы уже существуют и соответствуют этим сборкам, не создавайте их
 повторно.
@@ -124,7 +122,7 @@ logging:
   level: INFO
 slurm:
   partition: main
-  nodelist: meduza-1  # удалите, если узел не нужно фиксировать
+  # nodelist: orthrus-1  # только узел с общим хранилищем
   max_concurrent_jobs: 3
   stages:
     align:           {cpus: 16, memory: 64G, time: '2-00:00:00'}
@@ -200,37 +198,53 @@ find results/pilot_01/logs -type f | sort
 Для оценки качества проверьте sample IDs, покрытие, число вариантов и
 совпадение `REF` с нужной сборкой.
 
-## Панели и популяционная структура
+## Аналитические режимы
+
+Пока оба режима являются заглушками.
+
+### VCF → population structure
 
 ```bash
-# Пока возвращает NotImplementedError; файл labels не создаётся.
-python pipeline.py --vcf results/pilot_01/joint/beluga/cohort.raw.bcf
-
-# Реально запускает локальный QC и отбор панелей (НЕ SLURM).
-python pipeline.py \
-  --vcf results/pilot_01/joint/beluga/cohort.raw.bcf \
-  --metadata inputs/my_population_labels.tsv \
-  --species beluga --run-id beluga_panel_01
+python pipeline.py --vcf /absolute/path/to/cohort.raw.bcf
 ```
 
-Для второго режима замените шаблон метаданных на фактический TSV с колонками
-`sample_id`, `population` и опционально `group`. Все образцы VCF должны иметь
-ровно по одной строке. Отбор SNP и LD выполняются **внутри training folds**.
-Пути результатов: `qc/filtered.bcf`, `qc/qc_summary.tsv`,
-`panels/minimal_panel.tsv`, `panels/cv_metrics.tsv`,
-`panels/nested_cv_metrics.tsv` (если возможна), `panels/model.joblib`,
-графики качества и матрицы ошибок. `model.joblib` загружайте только из
-доверенного источника.
+Не выполняются PCA, кластеризация и определение
+популяционной принадлежности.
 
-Полная интерпретация QC, CV, ограничений и восстановление после ошибок:
-[руководство по эксплуатации](docs/USER_GUIDE.md).
+### VCF + metadata → SNP panel
+
+```bash
+python pipeline.py \
+  --vcf /absolute/path/to/cohort.raw.bcf \
+  --metadata /absolute/path/to/population_labels.tsv \
+  --species polar_bear
+```
+
+Не выполняются SNP-level QC, ranking, LD filtering,
+classification и cross-validation.
+
+Оба режима завершаются сообщением `NotImplementedError`.
+Результаты анализа не создаются.
+
+## Проверенный технический пилот
+
+8 ноября 2026 года один WGS белого медведя
+(`ERR2799468`) прошёл все восемь стадий на `orthrus-1`.
+
+Получены BAM, gVCF, BCF и VCF.
+Итоговые BCF и VCF содержат по 297 записей.
+
+Это технический тест, а не научная валидация
+качества генотипирования.
+
+Подробнее: [отчёт о пилоте](docs/PILOT_2026-11-08.md).
 
 ## Для разработчиков
 
 - [Архитектура и контракты](docs/PROJECT_GUIDE.md)
 - [Подробная инструкция по установке и запуску](docs/USER_GUIDE.md)
 - [Описание Python-модулей](src/minsnp/README.md)
-- [Журнал рефакторинга](docs/REFACTORING.md)
+- [Отчёт о пилоте](docs/PILOT_2026-11-08.md)
 - `python -m pytest -q tests/` — контрактные тесты без реального GATK/SLURM
 - `python -m compileall -q pipeline.py src/minsnp` — синтаксис Python
 - `for f in stages/*.sh; do bash -n "$f" || exit; done` — синтаксис Bash
