@@ -1,20 +1,22 @@
-# Один SLURM array на все образцы, независимо от вида.
-# Хромосомы внутри WGS и joint обрабатываются последовательно.
+# Один SLURM array на каждую активную стадию. Между arrays — afterok,
+# поэтому в пределах одного запуска одновременно работает только один этап.
+# Ограничение %N применяется к каждой array; в совокупности для run-id <= N.
 trim_fastq: false
+
+logging:
+  level: INFO
 
 slurm:
   partition: main
-  nodelist: meduza-1  # Узел должен поддерживать AVX2 для BWA-MEM3
-  max_parallel_samples: 3
-
-  # CPU/RAM и предельное время отдельного животного.
-  sample:
-    cpus: 16
-    memory: 64G
-    time: "2-00:00:00"
-
-  # CPU/RAM и предельное время joint-обработки одного вида.
-  joint:
-    cpus: 8
-    memory: 48G
-    time: "2-00:00:00"
+  nodelist: meduza-1  # Нужна поддержка AVX2 для BWA-MEM3
+  max_concurrent_jobs: 3
+  stages:
+    trim:            {cpus: 4,  memory: 8G,  time: '12:00:00'}
+    align:           {cpus: 16, memory: 64G, time: '2-00:00:00'}
+    merge_bam:       {cpus: 4,  memory: 16G, time: '12:00:00'}
+    markdup:         {cpus: 8,  memory: 32G, time: '1-00:00:00'}
+    bam_qc:          {cpus: 4,  memory: 16G, time: '12:00:00'}
+    haplotypecaller: {cpus: 8,  memory: 32G, time: '2-00:00:00'}
+    genomicsdb:      {cpus: 8,  memory: 64G, time: '2-00:00:00'}
+    genotype:        {cpus: 8,  memory: 48G, time: '2-00:00:00'}
+    export_vcf:      {cpus: 4,  memory: 16G, time: '12:00:00'}

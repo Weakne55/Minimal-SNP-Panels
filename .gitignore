@@ -1,115 +1,27 @@
-
-# ==========================================
-# WGS raw sequencing data
-# ==========================================
-/data/full_wgs_20261022/
-*.fastq.gz
-*.fq.gz
-*.fastq.gz.part
-
-# ==========================================
-# Pipeline computational results
-# ==========================================
-/results/
-
-# ==========================================
-# Python cache
-# ==========================================
+# Python artifacts and local environments
 __pycache__/
-*.pyc
-*.pyo
+.pytest_cache/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+build/
 
-# ==========================================
-# Runtime logs
-# ==========================================
+# Outputs and local run state
+/results/
+/runs/
 *.log
 *.err
-/genome_reference_setup/genomes_index_*.out
-
-# ==========================================
-# Temporary backups and patches
-# ==========================================
-*.before_*
-*.bak_*
-/patch_wgs_alignment_20261024.py
-
-# ==========================================
-# Local archives
-# ==========================================
-/full_wgs_setup.zip
-
-# ==========================================
-# Incomplete or corrupted downloads
-# ==========================================
+*.out
+*.bak
 *.part
-*.corrupt_*.fastq.gz
 
-
-# Local data and run configuration
-/results/
-/WGS_GATK_simple/config/config.yaml
-/WGS_GATK_simple/config/samples.tsv
-/WGS_GATK_simple/config/*.bak
-
-# Archives and Python cache
-/*.zip
-/*.tar.gz
-__pycache__/
-*.pyc
-.pytest_cache/
-
-# Сгенерированные результаты и исходные крупные файлы
-results/
-runs/
-data/full_wgs_*/
-*.fastq
-*.bam
-*.bai
-*.cram
-*.g.vcf.gz
-*.vcf.gz
-*.bcf
-*.csi
-*.tbi
-*.egg-info/
-.minsnp_backups/
-.stage_backups/
-dist/
-.patch_backups/
-data/wgs/
-**/genomes_index_*.out
-
-# Curated public metadata only; never commit genomic reads or results.
+# Genomic input and intermediate data (do not commit)
 /data/*
 !/data/metadata/
 /data/metadata/*
 !/data/metadata/README_metadata.md
 !/data/metadata/WGS_final.xlsx
-/data/wgs/
-/results/
-
-# Server-local history, tests and compatibility tools (never delete locally).
-/legacy/
-/benchmarks/
-/tests/
-/tools/
-*.bak
-*.status.bak
-
-# minsnp: local HPC outputs
-# Большие данные и результаты анализов остаются на сервере.
-/data/wgs/
-/results/
-/legacy/
-/tools/
-/tests/
-__pycache__/
-.pytest_cache/
-*.py[cod]
-*.egg-info/
-*.bak
-*.log
-*.out
 *.fastq
 *.fastq.gz
 *.fq
@@ -119,9 +31,17 @@ __pycache__/
 *.cram
 *.crai
 *.bcf
-*.bcf.csi
+*.csi
+*.tbi
 *.vcf.gz
-*.vcf.gz.csi
-*.g.vcf.gz
-*.g.vcf.gz.tbi
-/wgs_test/wgs_pilot.py
+
+# Local archives and worktrees
+/*.zip
+/*.tar.gz
+/.minsnp_backups/
+/.stage_backups/
+/legacy/
+/benchmarks/
+/tools/
+
+.patch_backups/

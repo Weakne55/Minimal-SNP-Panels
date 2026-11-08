@@ -2,9 +2,12 @@
 from __future__ import annotations
 import csv
 import json
+import logging
+import time
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import subprocess
 
@@ -89,10 +92,16 @@ def capture_versions(names: list[str]) -> dict[str, str]:
 def call(args: list[str], logdir: Path, name: str, env: dict[str, str] | None = None) -> None:
     logdir.mkdir(parents=True, exist_ok=True)
     logfile = logdir / f"{name}.log"
+    logger = logging.getLogger("minsnp")
+    logger.info("START command stage=%s log=%s", name, logfile)
+    started = time.monotonic()
     with logfile.open("a", encoding="utf-8") as log:
-        log.write("\n$ " + " ".join(__import__("shlex").quote(x) for x in args) + "\n")
+        log.write("\n$ " + shlex.join(map(str, args)) + "\n")
         log.flush()
         proc = subprocess.run(args, stdout=log, stderr=subprocess.STDOUT, check=False, **({"env": env} if env is not None else {}))
+    logger.log(logging.INFO if not proc.returncode else logging.ERROR,
+               "END command stage=%s exit=%d elapsed_s=%.1f",
+               name, proc.returncode, time.monotonic() - started)
     if proc.returncode:
         raise RuntimeError(f"Ошибка этапа {name}, код {proc.returncode}; лог: {logfile}")
 

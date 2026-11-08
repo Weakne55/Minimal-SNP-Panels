@@ -1,107 +1,108 @@
-"""GenomicsDBImport и GenotypeGVCFs по выбранным хромосомам."""
+"""Совместное генотипирование всех аутосом: одна GenomicsDB и один callset на вид."""
 from __future__ import annotations
+
 from pathlib import Path
-from collections import defaultdict
-import subprocess
-import json
 import shutil
-from .core import check_index, file_exists, identifier, read_tsv, samples_in_vcf, stage
-from .wgs import quarantine_incomplete
+
+from .core import check_index, file_exists, samples_in_vcf, stage
+from .wgs import _valid_gvcf, quarantine_incomplete
 
 
-def validate_gvcf(sheet: Path, contigs: list[str], fasta: str) -> dict[str, list[tuple[str, str]]]:
-    rows = read_tsv(sheet, ("sample_id", "contig", "gvcf_path"))
-    fai_lengths = {}
-    for line in Path(fasta + ".fai").read_text().splitlines():
-        chrom, size, *_ = line.split("\t")
-        fai_lengths[chrom] = int(size)
-    by_contig = defaultdict(list)
-    observed = set()
-    all_samples = set()
-    for row in rows:
-        sample = identifier(row["sample_id"])
-        contig = row["contig"]
-        if contig not in contigs or (sample, contig) in observed:
-            raise ValueError(f"Неожиданная или повторная пара sample × contig: {sample}, {contig}")
-        observed.add((sample, contig))
-        all_samples.add(sample)
-        path = file_exists(row["gvcf_path"])
-        check_index(path)
-        indexed = subprocess.run(["bcftools", "index", "-s", str(path)], check=True, capture_output=True, text=True)
-        sizes = {parts[0]: parts[1] for line in indexed.stdout.splitlines() if (parts := line.split("\t")) and len(parts) >= 2}
-        if contig not in sizes:
-            raise ValueError(f"gVCF не содержит ожидаемый contig: {path}, {contig}")
-        if sizes[contig] != "." and int(sizes[contig]) != fai_lengths[contig]:
-            raise ValueError(f"Длина contig в gVCF не совпадает с FASTA: {contig}, {path}")
-        actual = samples_in_vcf(path)
+def valid_variant(path: Path) -> bool:
+    return _valid_gvcf(path)
+
+
+def sample_map_from_plan(plan: dict, species: str, run: Path) -> dict[str, str]:
+    """Проверять входные gVCF и состав вида перед импортом."""
+    mapping = {}
+    for item in plan['samples']:
+        if item['species'] != species:
+            continue
+        sample = item['sample']
+        gvcf = (run / 'samples' / species / sample / 'wgs' / 'gvcf' /
+                f'{sample}.g.vcf.gz')
+        file_exists(gvcf)
+        check_index(gvcf)
+        if not _valid_gvcf(gvcf):
+            raise ValueError(f"Повреждён gVCF: {gvcf}")
+        actual = samples_in_vcf(gvcf)
         if actual != [sample]:
-            raise ValueError(f"Неверный sample ID в {path}: {actual}, ожидался {sample}")
-        by_contig[contig].append((sample, str(path)))
-    if set(by_contig) != set(contigs):
-        raise ValueError("Для некоторых contigs gVCF отсутствуют")
-    for contig in contigs:
-        if {s for s, _ in by_contig[contig]} != all_samples:
-            raise ValueError(f"Неполная матрица sample × contig: {contig}")
-    return dict(by_contig)
+            raise ValueError(f"gVCF {gvcf}: sample columns {actual}, ожидался {sample}")
+        if sample in mapping:
+            raise ValueError(f"Повторный образец: {sample}")
+        mapping[sample] = str(gvcf.resolve())
+    if not mapping:
+        raise ValueError(f"Не найдены образцы вида {species}")
+    return mapping
 
 
-def run(sheet: Path, spec: dict, out: Path, logs: Path, resume: bool, cfg: dict | None = None) -> Path:
-    mapping = validate_gvcf(sheet, spec["contigs"], spec["fasta"])
-    out.mkdir(parents=True, exist_ok=True)
-    signature = {"assembly": spec["assembly"], "fasta": spec["fasta"], "entries": []}
-    for contig in spec["contigs"]:
-        for sample, filename in sorted(mapping[contig]):
-            st = Path(filename).stat()
-            signature["entries"].append([sample, contig, filename, st.st_size, st.st_mtime_ns])
-    lock = out / "cohort.lock.json"
-    if lock.exists():
-        if json.loads(lock.read_text()) != signature:
-            raise ValueError(f"Входы существующей когорты изменились: {lock}")
+def _setup_sample_map(plan: dict, species: str, run: Path, out: Path) -> Path:
+    mapping = sample_map_from_plan(plan, species, run)
+    sample_map = out / 'sample_map.tsv'
+    sample_map.parent.mkdir(parents=True, exist_ok=True)
+    expected = ''.join(f'{sample}\t{mapping[sample]}\n' for sample in sorted(mapping))
+    if sample_map.exists():
+        if sample_map.read_text() != expected:
+            raise ValueError(f"Изменился состав sample-map: {sample_map}")
     else:
-        lock.write_text(json.dumps(signature, indent=2) + "\n")
-    contig_vcfs = []
-    for contig in spec["contigs"]:
-        samplemap = out / "sample_maps" / f"{contig}.tsv"
-        # Для GATK sample map не содержит заголовка.
-        samplemap.parent.mkdir(parents=True, exist_ok=True)
-        text = "".join(f"{s}\t{p}\n" for s, p in sorted(mapping[contig]))
-        if samplemap.exists() and samplemap.read_text() != text:
-            raise ValueError(f"Запрещено менять состав существующей когорты: {samplemap}")
-        samplemap.write_text(text)
-        db = out / "genomicsdb" / contig
-        vcf = out / "per_contig" / f"{contig}.vcf.gz"
-        vcf.parent.mkdir(parents=True, exist_ok=True)
-        # Если GATK был прерван, частичный VCF не считается готовым.
-        valid_vcf = vcf.is_file() and (Path(str(vcf) + '.tbi').is_file() or
-                                       Path(str(vcf) + '.csi').is_file())
-        if valid_vcf:
-            valid_vcf = subprocess.run(['bcftools', 'index', '-n', str(vcf)],
-                                       capture_output=True).returncode == 0
-        if not valid_vcf:
-            quarantine_incomplete(vcf)
-            if db.exists() and not (db / '.completed').is_file():
-                # Удаляется только незавершённая БД своего run-id и contig.
-                if db.parent.resolve() != (out / 'genomicsdb').resolve():
-                    raise ValueError(f'Небезопасный путь GenomicsDB: {db}')
+        tmp = sample_map.with_name(sample_map.name + '.tmp')
+        tmp.write_text(expected)
+        tmp.replace(sample_map)
+    return sample_map
+
+
+def _db_valid(db: Path) -> bool:
+    return db.is_dir() and (db / '.completed').is_file()
+
+
+def _check_samples(plan: dict, species: str, path: Path) -> None:
+    expected = {s['sample'] for s in plan['samples'] if s['species'] == species}
+    actual = samples_in_vcf(path)
+    if len(actual) != len(expected) or set(actual) != expected:
+        raise ValueError(f"Не совпадает состав образцов в {path}: {actual}")
+
+
+def run_stage(name: str, plan: dict, species: str, spec: dict,
+              run: Path, cfg: dict, out: Path, logs: Path) -> Path:
+    """Каждая стадия выполняется один раз на вид, без per-contig shards."""
+    out.mkdir(parents=True, exist_ok=True)
+    contigs = spec['contigs']
+    if not contigs or len(set(contigs)) != len(contigs):
+        raise ValueError(f"Некорректный список аутосом вида {species}")
+    db = out / 'genomicsdb'
+    bcf = out / 'cohort.raw.bcf'
+    vcf = out / 'cohort.raw.vcf.gz'
+    if name == 'genomicsdb':
+        samplemap = _setup_sample_map(plan, species, run, out)
+        if not _db_valid(db):
+            if db.exists() or db.is_symlink():
+                if db.is_symlink() or db.parent.resolve() != out.resolve():
+                    raise ValueError(f"Небезопасный путь GenomicsDB: {db}")
                 shutil.rmtree(db)
-            if not db.exists():
-                stage('genomicsdb.sh', [spec['fasta'], contig, samplemap, db],
-                      logs, f'import_{contig}', cfg=cfg)
-            stage('genotype.sh', [spec['fasta'], db, vcf], logs,
-                  f'genotype_{contig}', cfg=cfg)
-        check_index(vcf)
-        contig_vcfs.append(vcf)
-    result = out / "cohort.raw.bcf"
-    valid_result = result.is_file() and Path(str(result) + '.csi').is_file()
-    if valid_result:
-        valid_result = subprocess.run(['bcftools', 'index', '-n', str(result)],
-                                      capture_output=True).returncode == 0
-    if not valid_result:
-        quarantine_incomplete(result)
-        stage('concat.sh', [result, *contig_vcfs], logs, 'concat', cfg=cfg)
-    check_index(result)
-    expected = {sample for items in mapping.values() for sample, _ in items}
-    observed = samples_in_vcf(result)
-    if len(observed) != len(expected) or set(observed) != expected:
-        raise ValueError(f"Состав образцов в итоговом VCF не совпадает с manifest: {observed}")
-    return result
+            stage('genomicsdb.sh', [spec['fasta'], samplemap, db, *contigs],
+                  logs, 'import_autosomes', cfg=cfg)
+        if not _db_valid(db):
+            raise RuntimeError(f"GenomicsDB не завершился: {db}")
+        return db
+    if name == 'genotype':
+        if not _db_valid(db):
+            raise RuntimeError(f"Отсутствует готовый GenomicsDB: {db}")
+        if not valid_variant(bcf):
+            quarantine_incomplete(bcf)
+            stage('genotype.sh', [spec['fasta'], db, bcf, *contigs],
+                  logs, 'genotype_autosomes', cfg=cfg)
+        if not valid_variant(bcf):
+            raise RuntimeError(f"Некорректный общий BCF: {bcf}")
+        _check_samples(plan, species, bcf)
+        return bcf
+    if name == 'export_vcf':
+        if not valid_variant(bcf):
+            raise RuntimeError(f"Отсутствует итоговый BCF: {bcf}")
+        if not valid_variant(vcf):
+            quarantine_incomplete(vcf)
+            stage('export_vcf.sh', [bcf, vcf], logs, 'export_vcf', cfg=cfg)
+        if not valid_variant(vcf):
+            raise RuntimeError(f"Некорректный итоговый VCF: {vcf}")
+        _check_samples(plan, species, vcf)
+        return vcf
+    raise ValueError(f"Неизвестная joint стадия: {name}")

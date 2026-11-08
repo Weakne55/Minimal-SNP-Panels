@@ -1,156 +1,239 @@
 # Minimal SNP Panels — Beluga & Polar Bear
 
-**Minimal SNP Panels** — исследовательский pipeline для обработки полногеномного секвенирования (WGS) белух (*Delphinapterus leucas*) и белых медведей (*Ursus maritimus*). Проект объединяет подготовку многосэмпловых VCF/BCF, анализ генетической структуры и разработку небольших наборов SNP для определения популяционной принадлежности животных.
+Воспроизводимый конвейер для получения совместных VCF/BCF из WGS и отбора
+минимальных наборов SNP для классификации белухи (*Delphinapterus leucas*) и
+белого медведя (*Ursus maritimus*) по заданным популяционным меткам.
 
-Основная идея — разделить получение генотипов и их популяционно-генетический анализ. В качестве исходных данных можно использовать FASTQ либо уже подготовленный многосэмпловый VCF/BCF.
+## Режимы и схема
 
-## Возможности
-
-Pipeline предусматривает три независимых сценария:
-
-| Вход | Обработка | Результат |
-| --- | --- | --- |
-| FASTQ | Картирование, подготовка BAM, вызов вариантов и совместное генотипирование | Многосэмпловые VCF/BCF для каждого вида |
-| VCF/BCF | Контроль качества, LD pruning и исследование генетической структуры | PCA, предварительные популяционные метки |
-| VCF/BCF + метки популяций | Ранжирование SNP, учёт LD, классификация и кросс-валидация | Минимальная панель среди проверенных размеров |
-
-**Текущая реализация:** доступен путь FASTQ → VCF/BCF. Два режима анализа VCF/BCF пока представлены заглушками и не формируют научные результаты. Обновлённая WGS-версия требует проверки реальным сквозным запуском на сервере.
-
-## Как обрабатываются WGS
+| Режим | Команда | Результат |
+|---|---|---|
+| FASTQ → VCF | `--fastq MANIFEST.tsv` | BAM/gVCF для образцов, общий BCF и VCF на вид |
+| VCF → structure | `--vcf COHORT.bcf` | Заглушка |
+| VCF + metadata → SNP panel | `--vcf COHORT.bcf --metadata LABELS.tsv --species beluga` | Заглушка |
 
 ```text
-Paired-end FASTQ.gz
-    ↓
-BWA-MEM3 + samtools → BAM, маркировка дубликатов и QC
-    ↓
-GATK HaplotypeCaller → gVCF каждого животного по аутосомам
-    ↓
-GATK GenomicsDBImport + GenotypeGVCFs → совместные генотипы
-    ↓
-bcftools → индексированные multi-sample BCF и VCF.gz
+FASTQ R1/R2
+  → [trim] → align                         по sequencing unit (run/library)
+  → merge_bam → markdup → bam_qc           по образцу
+  → HaplotypeCaller                       один gVCF на образец
+  → GenomicsDBImport → GenotypeGVCFs       один workspace/callset на вид
+  → export_vcf                            один VCF.gz на вид
+
+VCF/BCF → population structure            заглушка, без фиктивных результатов
+VCF/BCF + metadata → QC → SNP ranking → LD selection → CV → minimal panel
 ```
 
-Один или несколько SRA runs могут относиться к одному животному. Pipeline объединяет их перед вызовом вариантов. Белухи и белые медведи обрабатываются с разными референсами; совместное генотипирование выполняется отдельно для каждого вида.
+## Быстрый старт на HPC
 
-Используемые сборки: `GCA_059928025.1` (белуха, 21 аутосома) и `GCA_062004589.1` (белый медведь, 36 аутосом). Пути к FASTA и списки аутосом указаны в `config/references.yaml`.
-
-## Установка
-
-Требуются Linux, Conda и биоинформатические инструменты из `envs/wgs-gatk-mem3.yaml`. Для запуска на вычислительном кластере требуется SLURM. Референсные FASTA и индексы подготавливаются отдельно.
+### 1. Получить код и установить окружение
 
 ```bash
+git clone --branch develop --single-branch https://github.com/Weakne55/Minimal-SNP-Panels.git
+cd Minimal-SNP-Panels
 conda env create -f envs/wgs-gatk-mem3.yaml
 conda activate wgs-gatk-mem3
 python pipeline.py --help
 python pipeline.py --check-tools
+python -m pytest -q tests/
 ```
 
-Если окружение уже установлено, достаточно активировать его. В репозитории также есть `Dockerfile` для сборки окружения; контейнер не содержит геномных данных и референсов.
+Потребуются Linux, Python 3.11, GATK4, BWA-MEM3 (AVX2), samtools, bcftools,
+fastp, mosdepth и, для кластерного запуска, SLURM (`sbatch`, `squeue`).
+Окружение задано в `envs/wgs-gatk-mem3.yaml`. Опция `--check-tools` печатает
+версии, но не останавливается при отсутствии части программ: перед запуском
+проверьте их доступность в `PATH` на вычислительных узлах.
 
-## Входные данные
+### 2. Подготовить референсы
 
-Для WGS используется TSV со столбцами:
+Используются следующие сборки NCBI:
+
+| `species` | Genome accession | Число аутосом |
+|---|---|---:|
+| `beluga` | `GCA_059928025.1` | 21 |
+| `polar_bear` | `GCA_062004589.1` | 36 |
+
+Установка NCBI Datasets CLI и скачивание FASTA:
+
+```bash
+conda create -y -n ncbi-datasets -c conda-forge ncbi-datasets-cli
+
+mkdir -p data/references/beluga data/references/polar_bear
+
+conda run -n ncbi-datasets datasets download genome accession GCA_059928025.1 \
+  --include genome,seq-report --filename data/references/beluga/ncbi_dataset.zip
+
+conda run -n ncbi-datasets datasets download genome accession GCA_062004589.1 \
+  --include genome,seq-report --filename data/references/polar_bear/ncbi_dataset.zip
+
+unzip -n data/references/beluga/ncbi_dataset.zip -d data/references/beluga
+unzip -n data/references/polar_bear/ncbi_dataset.zip -d data/references/polar_bear
+
+find data/references -name '*_genomic.fna'
+```
+
+Для каждого полученного FASTA выполнить **на compute node**, а не на login node: 
+
+```bash
+conda activate wgs-gatk-mem3
+
+samtools faidx /absolute/path/to/reference_genomic.fna
+
+gatk CreateSequenceDictionary -R /absolute/path/to/reference_genomic.fna \
+  -O /absolute/path/to/reference_genomic.dict
+
+bwa-mem3 index /absolute/path/to/reference_genomic.fna
+```
+
+Повторите для обоих видов. Задайте реальные **абсолютные пути** `species.*.fasta`
+в `config/references.yaml`. Существующие списки `contigs` в этом YAML не
+меняйте: они определяют нужные аутосомы. Скрипт
+`wgs_test/genome_reference_setup/setup_genomes.sh` использует старый BWA index
+и **не заменяет** команду `bwa-mem3 index`.
+
+Если индексы уже существуют и соответствуют этим сборкам, не создавайте их
+повторно.
+
+### 3. Подготовить FASTQ-манифест
+
+Скачайте paired-end FASTQ из SRA/ENA или используйте локальные файлы. Для
+публичных данных проверяйте соответствие run/BioSample, пары R1/R2 и MD5.
+Полная процедура скачивания с ENA и проверкой MD5 приведена в
+[руководстве по эксплуатации](docs/USER_GUIDE.md#4-скачать-fastq-и-создать-входной-tsv).
+
+Файл `inputs/my_cohort.tsv` (разделитель — табуляция):
 
 ```tsv
 sample_id	species	run_id	library	fastq_r1	fastq_r2
+B01	beluga	RUN01	LIB01	/absolute/reads/B01_R1.fastq.gz	/absolute/reads/B01_R2.fastq.gz
+B01	beluga	RUN02	LIB01	/absolute/reads/B01_R1_2.fastq.gz	/absolute/reads/B01_R2_2.fastq.gz
 ```
 
-Каждая строка описывает пару FASTQ одного запуска секвенирования. Поле `species` принимает `beluga` или `polar_bear`; у одного животного может быть несколько строк. Относительные пути к FASTQ отсчитываются от расположения TSV.
+Одна строка — одна sequencing unit, несколько строк на образец допустимы.
+Тройка `(sample_id, run_id, library)` должна быть уникальной, каждый FASTQ
+используется один раз. Пример для редактирования: `inputs/fastq.template.tsv`.
+Относительные FASTQ-пути разрешаются относительно расположения TSV.
 
-Готовые примеры: `inputs/beluga_two.fastq.tsv` и `inputs/polar_bear_two.fastq.tsv`. FASTQ хранятся отдельно от Git-репозитория.
+### 4. Настроить SLURM
 
-## Запуск
-
-Все пользовательские команды выполняются через `pipeline.py`.
-
-**Проверить план SLURM без отправки заданий:**
-
-```bash
-python pipeline.py \
-  --fastq inputs/beluga_two.fastq.tsv inputs/polar_bear_two.fastq.tsv \
-  --run-id example_wgs --backend slurm
-```
-
-**Отправить задания:**
-
-```bash
-python pipeline.py \
-  --fastq inputs/beluga_two.fastq.tsv inputs/polar_bear_two.fastq.tsv \
-  --run-id example_wgs --backend slurm --submit
-```
-
-**Посмотреть состояние:**
-
-```bash
-python pipeline.py status --run-id example_wgs
-```
-
-Для обработки без SLURM используется `--backend local`. Этот режим запускает вычисления сразу. Для продолжения прерванного запуска предусмотрен `--resume`; входные файлы и конфигурация должны соответствовать сохранённому плану.
-
-### Ресурсы SLURM
-
-CPU, память, время и число параллельно обрабатываемых животных задаются в `config/pipeline.yaml`:
+Измените в `config/pipeline.yaml` значения под свой кластер:
 
 ```yaml
+trim_fastq: false
+logging:
+  level: INFO
 slurm:
   partition: main
-  nodelist: meduza-1
-  max_parallel_samples: 3
-  sample:
-    cpus: 16
-    memory: 64G
-    time: "2-00:00:00"
-  joint:
-    cpus: 8
-    memory: 48G
-    time: "2-00:00:00"
+  nodelist: meduza-1  # удалите, если узел не нужно фиксировать
+  max_concurrent_jobs: 3
+  stages:
+    align:           {cpus: 16, memory: 64G, time: '2-00:00:00'}
+    haplotypecaller: {cpus: 8,  memory: 32G, time: '2-00:00:00'}
+    genomicsdb:      {cpus: 8,  memory: 64G, time: '2-00:00:00'}
+    genotype:        {cpus: 8,  memory: 48G, time: '2-00:00:00'}
 ```
 
-SLURM запускает один общий массив WGS-задач для всех животных, независимо от вида. `max_parallel_samples` ограничивает число одновременно работающих задач этого массива. После успешного завершения WGS запускается отдельное совместное генотипирование для каждого вида. Аутосомы обрабатываются последовательно внутри соответствующих заданий.
+Это **фрагмент**, не полный YAML: сохраните настройки остальных стадий.
+Время, RAM и CPU задаются отдельно для каждого этапа; вся последовательность
+берётся из `slurm.stages`. На стадиях joint genotyping одна задача обрабатывает
+**все** указанные аутосомы вида — оцените её ресурсы заранее.
 
-### Расчёт вычислительных ресурсов
+### 5. Проверить и запустить
 
-Ресурсы задаются в `config/pipeline.yaml` отдельно для обработки одного образца (`sample`) и совместного генотипирования одного вида (`joint`). Поскольку стадии внутри задания выполняются последовательно, SLURM резервирует указанные CPU и RAM на всё время его работы. Параметр `max_parallel_samples` ограничивает количество одновременно обрабатываемых образцов **суммарно по всем видам**.
+```bash
+# Без --submit: проверить манифест, референсы и распределение ресурсов.
+python pipeline.py --fastq inputs/my_cohort.tsv \
+  --backend slurm --run-id pilot_01
 
-Максимальные одновременные запросы ресурсов для WGS рассчитываются по формулам:
+# Отправить задачи в SLURM.
+python pipeline.py --fastq inputs/my_cohort.tsv \
+  --backend slurm --run-id pilot_01 --submit
 
-- **CPU:** `sample.cpus × min(число образцов, max_parallel_samples)`
-- **RAM:** `sample.memory × min(число образцов, max_parallel_samples)`
+# Посмотреть прогресс по завершённым задачам.
+python pipeline.py status --run-id pilot_01
+```
 
-Например, при обработке пяти животных (двух белух и трёх медведей), `max_parallel_samples: 3`, `sample.cpus: 16` и `sample.memory: 64G` одновременно могут выполняться три WGS-задания. Их суммарный запрос составит **48 CPU и 192 GiB RAM**.
+**Важно:** `--backend local` — не dry run: без `--submit` он **сразу выполняет**
+все стадии на текущей машине. Для возобновления локального запуска используйте
+`--resume`. В SLURM повторная отправка arrays для существующего run-id
+заблокирована; в случае частичной отправки сначала изучите `slurm_jobs.partial.json`
+и `sacct`, затем примите решение об исправлении, отмене заданий или новом run-id.
 
-После завершения всех WGS-заданий запускается отдельный joint genotyping для каждого вида. При `joint.cpus: 8` и `joint.memory: 48G` два одновременно работающих joint-задания запросят **16 CPU и 96 GiB RAM**. Поскольку WGS и joint выполняются последовательно, их ресурсы не складываются: максимальный одновременный запрос всего pipeline в этом примере — **48 CPU и 192 GiB RAM**.
+### 6. Мониторинг и логи
 
-Это расчёт запрашиваемых ресурсов, а не фактического потребления. SLURM может запустить меньше заданий одновременно, если на вычислительных узлах недостаточно свободных ресурсов. Реальную загрузку CPU и RAM необходимо оценивать по статистике выполненных заданий.
+```bash
+python pipeline.py status --run-id pilot_01
+
+squeue -u "$USER"
+
+cat results/pilot_01/slurm_jobs.json
+
+tail -f results/pilot_01/logs/pipeline.log
+
+find results/pilot_01/logs -type f | sort
+```
+
+- `logs/pipeline.log` — CLI, планирование и отправка заданий.
+- `logs/slurm/<stage>_<jobid>_<task>.out/.err` — SLURM stdout/stderr.
+- `logs/workers/<stage>/<index>.log` — действия конкретного Python worker.
+- `samples/<species>/<sample>/logs/*.log` и `joint/<species>/logs/*.log`
+  — команды и объединённый stdout/stderr инструментов.
+- `completed/<stage>/<index>.json` — маркер успешно проверенной стадии.
+
+**Отсутствие задания в `squeue` не означает успех:** проверяйте `sacct`, маркер
+`completed/` и целостность итоговых VCF/BCF.
 
 ## Результаты
 
-Результаты находятся в `results/<run-id>/`. Для каждого животного сохраняются BAM, показатели QC и gVCF по аутосомам. Для каждого вида создаются:
+| Путь внутри `results/<run-id>/` | Что содержит |
+|---|---|
+| `slurm_plan.json`, `versions.json` | План и версии доступных инструментов |
+| `samples/<species>/<sample>/wgs/lanes/` | BAM по sequencing units |
+| `samples/<species>/<sample>/wgs/bam/` | Объединённый BAM и BAM с отмеченными дубликатами |
+| `samples/<species>/<sample>/wgs/qc/` | `flagstat`, `stats`, `mosdepth`, метрики дубликатов |
+| `samples/<species>/<sample>/wgs/gvcf/` | Один индексированный gVCF образца по всем аутосомам |
+| `joint/<species>/genomicsdb/` | Один GenomicsDB workspace вида |
+| `joint/<species>/cohort.raw.bcf` | Совместные генотипы, бинарный VCF |
+| `joint/<species>/cohort.raw.vcf.gz` | Совместные генотипы, сжатый VCF (с индексом) |
 
-```text
-joint/<species>/
-├── cohort.raw.bcf
-├── cohort.raw.bcf.csi
-├── cohort.raw.vcf.gz
-└── cohort.raw.vcf.gz.csi
-```
+Значения `*.raw.*` — **ещё не отфильтрованные по качеству варианты**.
+Для оценки качества проверьте sample IDs, покрытие, число вариантов и
+совпадение `REF` с нужной сборкой.
 
-Манифесты, логи и файлы плана позволяют проверить состав выборки и параметры вычислений. Полученные VCF/BCF предназначены для последующего контроля качества и популяционно-генетического анализа; наличие файла само по себе не означает, что данные прошли все проверки.
-
-## Структура проекта
-
-- `pipeline.py` — пользовательский интерфейс и запуск анализа.
-- `src/minsnp/` — Python-модули обработки WGS, совместного генотипирования и управления SLURM.
-- `stages/` — Bash-скрипты для BWA-MEM3, samtools, GATK и bcftools.
-- `config/` — настройки вычислений и референсных геномов.
-- `inputs/` — примеры и шаблоны входных TSV.
-- `envs/` — спецификации Conda-окружения.
-- `docs/PROJECT_GUIDE.md` — подробная архитектура, форматы данных и технические ограничения.
-
-## Проверка
+## Панели и популяционная структура
 
 ```bash
-PYTHONPATH=src python -m pytest -q
+# Пока возвращает NotImplementedError; файл labels не создаётся.
+python pipeline.py --vcf results/pilot_01/joint/beluga/cohort.raw.bcf
+
+# Реально запускает локальный QC и отбор панелей (НЕ SLURM).
+python pipeline.py \
+  --vcf results/pilot_01/joint/beluga/cohort.raw.bcf \
+  --metadata inputs/my_population_labels.tsv \
+  --species beluga --run-id beluga_panel_01
 ```
 
-Модульные тесты не заменяют проверку полного FASTQ → VCF на реальных данных. Прежде чем масштабировать анализ на всю когорту, необходимо проверить результаты joint genotyping и качество итоговых VCF/BCF.
+Для второго режима замените шаблон метаданных на фактический TSV с колонками
+`sample_id`, `population` и опционально `group`. Все образцы VCF должны иметь
+ровно по одной строке. Отбор SNP и LD выполняются **внутри training folds**.
+Пути результатов: `qc/filtered.bcf`, `qc/qc_summary.tsv`,
+`panels/minimal_panel.tsv`, `panels/cv_metrics.tsv`,
+`panels/nested_cv_metrics.tsv` (если возможна), `panels/model.joblib`,
+графики качества и матрицы ошибок. `model.joblib` загружайте только из
+доверенного источника.
+
+Полная интерпретация QC, CV, ограничений и восстановление после ошибок:
+[руководство по эксплуатации](docs/USER_GUIDE.md).
+
+## Для разработчиков
+
+- [Архитектура и контракты](docs/PROJECT_GUIDE.md)
+- [Подробная инструкция по установке и запуску](docs/USER_GUIDE.md)
+- [Описание Python-модулей](src/minsnp/README.md)
+- [Журнал рефакторинга](docs/REFACTORING.md)
+- `python -m pytest -q tests/` — контрактные тесты без реального GATK/SLURM
+- `python -m compileall -q pipeline.py src/minsnp` — синтаксис Python
+- `for f in stages/*.sh; do bash -n "$f" || exit; done` — синтаксис Bash
+
+Разработка и сравнение SNP-панелей — исследовательская задача; качество на
+внешних данных и достаточность выборки необходимо проверять отдельно.
