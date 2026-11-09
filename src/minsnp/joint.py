@@ -1,4 +1,5 @@
 """Совместное генотипирование всех аутосом: одна GenomicsDB и один callset на вид."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -9,11 +10,12 @@ from .wgs import _valid_gvcf, quarantine_incomplete
 
 
 def valid_variant(path: Path) -> bool:
+    """Проверить выходной VCF/BCF существующим валидатором."""
     return _valid_gvcf(path)
 
 
 def sample_map_from_plan(plan: dict, species: str, run: Path) -> dict[str, str]:
-    """Проверять входные gVCF и состав вида перед импортом."""
+    """Собрать соответствие sample → gVCF с проверкой файлов и образцов."""
     mapping = {}
     for item in plan['samples']:
         if item['species'] != species:
@@ -37,10 +39,13 @@ def sample_map_from_plan(plan: dict, species: str, run: Path) -> dict[str, str]:
 
 
 def _setup_sample_map(plan: dict, species: str, run: Path, out: Path) -> Path:
+    """Создать sample-map для GenomicsDBImport, не допуская изменения состава."""
     mapping = sample_map_from_plan(plan, species, run)
     sample_map = out / 'sample_map.tsv'
     sample_map.parent.mkdir(parents=True, exist_ok=True)
     expected = ''.join(f'{sample}\t{mapping[sample]}\n' for sample in sorted(mapping))
+
+    # Изменение sample-map при повторном запуске нарушает воспроизводимость.
     if sample_map.exists():
         if sample_map.read_text() != expected:
             raise ValueError(f"Изменился состав sample-map: {sample_map}")
@@ -52,10 +57,12 @@ def _setup_sample_map(plan: dict, species: str, run: Path, out: Path) -> Path:
 
 
 def _db_valid(db: Path) -> bool:
+    """Проверить наличие каталога GenomicsDB и маркера завершения."""
     return db.is_dir() and (db / '.completed').is_file()
 
 
 def _check_samples(plan: dict, species: str, path: Path) -> None:
+    """Сравнить образцы итогового VCF/BCF с запланированными."""
     expected = {s['sample'] for s in plan['samples'] if s['species'] == species}
     actual = samples_in_vcf(path)
     if len(actual) != len(expected) or set(actual) != expected:
@@ -64,45 +71,58 @@ def _check_samples(plan: dict, species: str, path: Path) -> None:
 
 def run_stage(name: str, plan: dict, species: str, spec: dict,
               run: Path, cfg: dict, out: Path, logs: Path) -> Path:
-    """Каждая стадия выполняется один раз на вид, без per-contig shards."""
+    """Выполнить одну joint-стадию для всех аутосом указанного вида."""
     out.mkdir(parents=True, exist_ok=True)
     contigs = spec['contigs']
     if not contigs or len(set(contigs)) != len(contigs):
         raise ValueError(f"Некорректный список аутосом вида {species}")
+
     db = out / 'genomicsdb'
     bcf = out / 'cohort.raw.bcf'
     vcf = out / 'cohort.raw.vcf.gz'
+
     if name == 'genomicsdb':
         samplemap = _setup_sample_map(plan, species, run, out)
+
         if not _db_valid(db):
+            # Незавершённую базу удаляем перед повторным импортом.
             if db.exists() or db.is_symlink():
                 if db.is_symlink() or db.parent.resolve() != out.resolve():
                     raise ValueError(f"Небезопасный путь GenomicsDB: {db}")
                 shutil.rmtree(db)
             stage('genomicsdb.sh', [spec['fasta'], samplemap, db, *contigs],
                   logs, 'import_autosomes', cfg=cfg)
+
         if not _db_valid(db):
             raise RuntimeError(f"GenomicsDB не завершился: {db}")
         return db
+
     if name == 'genotype':
         if not _db_valid(db):
             raise RuntimeError(f"Отсутствует готовый GenomicsDB: {db}")
+
+        # Корректные результаты повторно не вычисляем.
         if not valid_variant(bcf):
             quarantine_incomplete(bcf)
             stage('genotype.sh', [spec['fasta'], db, bcf, *contigs],
                   logs, 'genotype_autosomes', cfg=cfg)
+
         if not valid_variant(bcf):
             raise RuntimeError(f"Некорректный общий BCF: {bcf}")
         _check_samples(plan, species, bcf)
         return bcf
+
     if name == 'export_vcf':
         if not valid_variant(bcf):
             raise RuntimeError(f"Отсутствует итоговый BCF: {bcf}")
+
         if not valid_variant(vcf):
             quarantine_incomplete(vcf)
             stage('export_vcf.sh', [bcf, vcf], logs, 'export_vcf', cfg=cfg)
+
         if not valid_variant(vcf):
             raise RuntimeError(f"Некорректный итоговый VCF: {vcf}")
         _check_samples(plan, species, vcf)
         return vcf
+
     raise ValueError(f"Неизвестная joint стадия: {name}")

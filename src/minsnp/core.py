@@ -1,15 +1,16 @@
-"""Контракты, запуск программ и воспроизводимость."""
+"""Общие проверки, файловые операции и запуск внешних программ."""
+
 from __future__ import annotations
+
 import csv
-import json
 import logging
-import time
 import os
-from pathlib import Path
 import re
 import shlex
 import shutil
 import subprocess
+import time
+from pathlib import Path
 
 import yaml
 
@@ -18,12 +19,14 @@ SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
 
 def identifier(s: str) -> str:
+    """Проверить идентификатор на безопасность использования в путях."""
     if not SAFE_ID.fullmatch(s) or s in {".", ".."}:
         raise ValueError(f"Некорректный идентификатор: {s!r}")
     return s
 
 
 def read_tsv(path: str | Path, columns: tuple[str, ...]) -> list[dict[str, str]]:
+    """Прочитать TSV с обязательными столбцами и непустыми значениями."""
     path = Path(path).expanduser().resolve()
     if not path.is_file():
         raise FileNotFoundError(path)
@@ -38,6 +41,7 @@ def read_tsv(path: str | Path, columns: tuple[str, ...]) -> list[dict[str, str]]
 
 
 def write_tsv(path: Path, columns: list[str], rows: list[tuple]) -> None:
+    """Записать TSV, создав родительский каталог при необходимости."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.writer(fh, delimiter="\t")
@@ -46,6 +50,7 @@ def write_tsv(path: Path, columns: list[str], rows: list[tuple]) -> None:
 
 
 def file_exists(path: str | Path) -> Path:
+    """Проверить существование непустого файла и вернуть абсолютный путь."""
     p = Path(path).expanduser().resolve()
     if not p.is_file() or p.stat().st_size == 0:
         raise FileNotFoundError(f"Файл не найден или пуст: {p}")
@@ -53,6 +58,7 @@ def file_exists(path: str | Path) -> Path:
 
 
 def config(refs: Path, settings: Path, species: str) -> tuple[dict, dict]:
+    """Загрузить YAML и проверить референс и список аутосом вида."""
     cfg = yaml.safe_load(file_exists(settings).read_text())
     refs_yaml = yaml.safe_load(file_exists(refs).read_text())
     try:
@@ -65,6 +71,8 @@ def config(refs: Path, settings: Path, species: str) -> tuple[dict, dict]:
         raise ValueError("Повторяющиеся contigs в references.yaml")
     fasta = file_exists(spec["fasta"])
     fai = file_exists(str(fasta) + ".fai")
+
+    # В первом столбце .fai перечислены contig исходного FASTA.
     actual = {line.split("\t")[0] for line in fai.read_text().splitlines()}
     missing = set(spec["contigs"]) - actual
     if missing:
@@ -74,6 +82,7 @@ def config(refs: Path, settings: Path, species: str) -> tuple[dict, dict]:
 
 
 def capture_versions(names: list[str]) -> dict[str, str]:
+    """Собрать версии внешних инструментов для воспроизводимости запуска."""
     versions = {}
     for name in names:
         exe = shutil.which(name)
@@ -90,6 +99,7 @@ def capture_versions(names: list[str]) -> dict[str, str]:
 
 
 def call(args: list[str], logdir: Path, name: str, env: dict[str, str] | None = None) -> None:
+    """Выполнить команду, записать stdout/stderr в лог и проверить код возврата."""
     logdir.mkdir(parents=True, exist_ok=True)
     logfile = logdir / f"{name}.log"
     logger = logging.getLogger("minsnp")
@@ -98,7 +108,8 @@ def call(args: list[str], logdir: Path, name: str, env: dict[str, str] | None = 
     with logfile.open("a", encoding="utf-8") as log:
         log.write("\n$ " + shlex.join(map(str, args)) + "\n")
         log.flush()
-        proc = subprocess.run(args, stdout=log, stderr=subprocess.STDOUT, check=False, **({"env": env} if env is not None else {}))
+        proc = subprocess.run(args, stdout=log, stderr=subprocess.STDOUT, check=False,
+                              **({"env": env} if env is not None else {}))
     logger.log(logging.INFO if not proc.returncode else logging.ERROR,
                "END command stage=%s exit=%d elapsed_s=%.1f",
                name, proc.returncode, time.monotonic() - started)
@@ -107,7 +118,7 @@ def call(args: list[str], logdir: Path, name: str, env: dict[str, str] | None = 
 
 
 def stage(script: str, args: list[str], logdir: Path, name: str, cfg: dict | None = None) -> None:
-    """Вызвать Bash-стадию с собственным ресурсным бюджетом из YAML."""
+    """Выполнить Bash-стадию с лимитами ресурсов из конфигурации."""
     env = None
     if cfg is not None:
         from .resources import stage_effective
@@ -118,18 +129,22 @@ def stage(script: str, args: list[str], logdir: Path, name: str, cfg: dict | Non
 
 
 def require_commands(*commands: str) -> None:
+    """Проверить наличие необходимых программ в PATH."""
     missing = [c for c in commands if shutil.which(c) is None]
     if missing:
         raise RuntimeError("Не найдены инструменты в PATH: " + ", ".join(missing))
 
 
 def check_index(vcf: str | Path) -> None:
+    """Проверить наличие .csi или .tbi (без проверки содержимого индекса)."""
     p = Path(vcf)
     if not (Path(str(p) + ".csi").is_file() or Path(str(p) + ".tbi").is_file()):
         raise FileNotFoundError(f"Отсутствует индекс VCF/BCF: {p}")
 
 
 def samples_in_vcf(vcf: str | Path) -> list[str]:
+    """Получить список образцов из VCF/BCF с помощью bcftools."""
     require_commands("bcftools")
-    result = subprocess.run(["bcftools", "query", "-l", str(vcf)], capture_output=True, text=True, check=True)
+    result = subprocess.run(["bcftools", "query", "-l", str(vcf)],
+                            capture_output=True, text=True, check=True)
     return result.stdout.splitlines()

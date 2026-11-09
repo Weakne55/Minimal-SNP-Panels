@@ -1,9 +1,11 @@
-"""Поэтапные SLURM allocations и контроль фактических лимитов."""
+"""Ресурсы SLURM: конфигурация стадий, лимиты CPU и памяти."""
+
 from __future__ import annotations
 
 import os
 import re
 
+# Стадии группируются по единице обработки: lane, sample или species.
 LANE_STAGES = ('trim', 'align')
 SAMPLE_STAGES = ('merge_bam', 'markdup', 'bam_qc', 'haplotypecaller')
 JOINT_STAGES = ('genomicsdb', 'genotype', 'export_vcf')
@@ -12,6 +14,7 @@ STAGE_NAMES = frozenset(STAGE_ORDER)
 
 
 def memory_mib(value: str) -> int:
+    """Преобразовать объём памяти (M/G/T) в MiB."""
     match = re.fullmatch(r'([1-9][0-9]*)([MGT]?)', str(value).strip().upper())
     if not match:
         raise ValueError(f'Некорректный объём памяти: {value!r}; пример: 64G')
@@ -19,6 +22,7 @@ def memory_mib(value: str) -> int:
 
 
 def _validate_entry(stage: str, resource: dict) -> None:
+    """Проверить CPU, память и время одной стадии."""
     if not isinstance(resource, dict):
         raise ValueError(f'Отсутствует slurm.stages.{stage}')
     cpu = resource.get('cpus')
@@ -39,6 +43,7 @@ def _validate_entry(stage: str, resource: dict) -> None:
 
 
 def validate_resources(config: dict) -> None:
+    """Проверить конфигурацию ресурсов всех стадий пайплайна."""
     slurm = config.get('slurm')
     if not isinstance(slurm, dict):
         raise ValueError('В pipeline.yaml требуется секция slurm')
@@ -56,11 +61,13 @@ def validate_resources(config: dict) -> None:
 
 
 def get_parallelism(config: dict) -> int:
+    """Получить максимальное число одновременных задач в SLURM array."""
     validate_resources(config)
     return config['slurm']['max_concurrent_jobs']
 
 
 def job_allocation(config: dict, stage: str) -> tuple[int, str]:
+    """Получить CPU и память для отправки стадии через sbatch."""
     validate_resources(config)
     if stage not in STAGE_NAMES or stage not in config['slurm']['stages']:
         raise ValueError(f'Нет ресурсов для стадии {stage}')
@@ -69,17 +76,22 @@ def job_allocation(config: dict, stage: str) -> tuple[int, str]:
 
 
 def stage_allocation(config: dict, script: str) -> tuple[int, int]:
+    """Получить ресурсы Bash-стадии: CPU и память в MiB."""
     name = script.removesuffix('.sh')
     cpus, memory = job_allocation(config, name)
     return cpus, memory_mib(memory)
 
 
 def stage_effective(config: dict, script: str) -> tuple[int, int]:
+    """Сверить ресурсы стадии с фактически выделенными лимитами SLURM."""
     threads, memory = stage_allocation(config, script)
     cpu_limit = int(os.environ.get('SLURM_CPUS_PER_TASK') or 0)
     memory_limit = int(os.environ.get('SLURM_MEM_PER_NODE') or 0)
+
+    # SLURM может задавать память на узел либо на один выделенный CPU.
     if not memory_limit and os.environ.get('SLURM_MEM_PER_CPU') and cpu_limit:
         memory_limit = int(os.environ['SLURM_MEM_PER_CPU']) * cpu_limit
+
     if cpu_limit and threads > cpu_limit:
         raise RuntimeError(f'{script}: запрошено {threads} CPU, SLURM выделил {cpu_limit}')
     if memory_limit and memory > memory_limit:

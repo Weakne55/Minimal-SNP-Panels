@@ -25,10 +25,12 @@ COLUMNS = wgs.FASTQ_COLUMNS
 
 
 def sha256(path: str | Path) -> str:
+    """Вычислить SHA-256 содержимого существующего файла."""
     return hashlib.sha256(file_exists(path).read_bytes()).hexdigest()
 
 
 def code_hash() -> str:
+    """Получить общий хеш Python- и Bash-исходников пайплайна."""
     files = [ROOT / 'pipeline.py', *sorted((ROOT / 'src/minsnp').glob('*.py')),
              *sorted((ROOT / 'stages').glob('*.sh')),
              ROOT / 'stages/resource_lib.bash']
@@ -40,12 +42,14 @@ def code_hash() -> str:
 
 
 def task_at(items: list, index: int):
+    """Вернуть задачу массива по проверенному индексу."""
     if not 0 <= index < len(items):
         raise ValueError(f'Недопустимый индекс SLURM array: {index}')
     return items[index]
 
 
 def _write_json_atomic(path: Path, data: dict) -> None:
+    """Записать JSON через временный файл и атомарное переименование."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + '.tmp')
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
@@ -53,6 +57,7 @@ def _write_json_atomic(path: Path, data: dict) -> None:
 
 
 def _check_partial_plan_files(run: Path, manifests: list[tuple[Path, list]]) -> None:
+    """Запретить посторонние файлы при восстановлении незавершённого плана."""
     allowed_files = {run / 'slurm_plan.json.tmp'}
     allowed_dirs = {run / 'manifests'}
     for manifest, _ in manifests:
@@ -86,6 +91,7 @@ def make_tasks(samples: list[dict], trim: bool) -> dict[str, list[dict]]:
 
 def prepare_plan(run: Path, sheets: list[str], refs: str, settings: str,
                  cfg: dict, resume: bool = False) -> Path:
+    """Создать неизменяемый план задач и входных файлов для run-id."""
     validate_resources(cfg)
     cohort = wgs.load_cohort(sheets)
     run = run.expanduser().resolve()
@@ -104,6 +110,7 @@ def prepare_plan(run: Path, sheets: list[str], refs: str, settings: str,
               for sheet in sheets]
     read_files = sorted({row[4] for item in samples for row in item['records']} |
                         {row[5] for item in samples for row in item['records']})
+    # Для FASTQ фиксируем размер и mtime вместо хеширования больших файлов.
     fastq_stat = []
     for filename in read_files:
         st = file_exists(filename).stat()
@@ -139,6 +146,7 @@ def prepare_plan(run: Path, sheets: list[str], refs: str, settings: str,
 
 
 def verify_plan(plan: dict) -> None:
+    """Сверить код, конфиги, TSV и метаданные FASTQ с планом."""
     if plan.get('schema_version') != 3:
         raise ValueError('Устаревший SLURM-план: используйте новый --run-id')
     for name, key in (('references', 'reference_sha256'), ('settings', 'settings_sha256')):
@@ -177,6 +185,7 @@ def _request(run: Path, cfg: dict, stage_name: str, python: str,
         req.append(f'--partition={slurm["partition"]}')
     if slurm.get('nodelist'):
         req.append(f'--nodelist={slurm["nodelist"]}')
+    # Новый array стартует только после успеха всего предыдущего array.
     if dependency:
         req.append(f'--dependency=afterok:{dependency}')
     req.append('--wrap=' + wrapped)
@@ -184,6 +193,7 @@ def _request(run: Path, cfg: dict, stage_name: str, python: str,
 
 
 def submit_jobs(run: Path, cfg: dict, python: str) -> dict[str, str]:
+    """Отправить SLURM arrays, заблокировав повторную отправку run-id."""
     plan = json.loads(file_exists(run / 'slurm_plan.json').read_text())
     verify_plan(plan)
     validate_resources(cfg)
@@ -218,6 +228,7 @@ def _submit_locked(run: Path, cfg: dict, python: str, plan: dict,
                 raise RuntimeError(f'sbatch не вернул Job ID: {result.stdout!r}')
             jobs[stage_name] = job
             dependency = job
+            # Сохраняем отправленные Job ID до окончания всей цепочки.
             _write_json_atomic(partial_file, jobs)
             LOG.info('Submitted stage=%s job=%s tasks=%s max_active=%s',
                      stage_name, job, count, get_parallelism(cfg))
@@ -250,6 +261,7 @@ def setup_logging(level: str, filename: Path | None = None) -> None:
 
 
 def worker(plan_path: str, stage_name: str, index: int = 0) -> Path:
+    """Выполнить одну задачу SLURM array по сохранённому плану."""
     plan = json.loads(file_exists(plan_path).read_text())
     verify_plan(plan)
     if stage_name not in plan['stages']:
@@ -280,6 +292,7 @@ def worker(plan_path: str, stage_name: str, index: int = 0) -> Path:
                                      run, cfg, out, out / 'logs')
         else:
             raise ValueError(f'Недопустимый этап: {stage_name}')
+        # Маркер завершения появляется только после успешной стадии.
         _write_json_atomic(done, {'stage': stage_name, 'index': index,
                                   'task': task, 'output': str(result), 'status': 'completed'})
         LOG.info('DONE stage=%s task=%s output=%s', stage_name, index, result)
@@ -291,6 +304,7 @@ def worker(plan_path: str, stage_name: str, index: int = 0) -> Path:
 
 
 def status(run: Path) -> None:
+    """Показать маркеры завершения и текущие состояния задач SLURM."""
     plan = json.loads(file_exists(run / 'slurm_plan.json').read_text())
     jobs_path = run / 'slurm_jobs.json'
     if not jobs_path.exists():

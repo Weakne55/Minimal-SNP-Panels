@@ -95,10 +95,12 @@ def _valid_gvcf(path: Path) -> bool:
         check_index(path)
     except FileNotFoundError:
         return False
+    # Проверка индекса не гарантирует целостность всех записей gVCF/VCF.
     return subprocess.run(['bcftools', 'index', '-n', str(path)], capture_output=True).returncode == 0
 
 
 def _require_bwa_mem3_index(fasta: str) -> None:
+    """Проверить наличие всех файлов индекса BWA-MEM3."""
     missing = [f'{fasta}{suffix}' for suffix in BWA_INDEX_SUFFIXES
                if not Path(f'{fasta}{suffix}').is_file() or Path(f'{fasta}{suffix}').stat().st_size == 0]
     if missing:
@@ -107,10 +109,12 @@ def _require_bwa_mem3_index(fasta: str) -> None:
 
 
 def _lane_dir(out: Path, sample: str, row: dict[str, str]) -> Path:
+    """Получить каталог результатов одной sequencing unit."""
     return out / 'lanes' / sample / row['run_id'] / row['library']
 
 
 def _lane_reads(out: Path, sample: str, row: dict[str, str], trim: bool) -> tuple[str, str]:
+    """Выбрать исходные или прошедшие trimming FASTQ."""
     if not trim:
         return row['fastq_r1'], row['fastq_r2']
     lane = _lane_dir(out, sample, row)
@@ -133,6 +137,7 @@ def _run_checked(output: Path, valid: Callable[[Path], bool], script: str,
 
 def _run_lane(name: str, out: Path, logs: Path, sample: str, rows: list[dict[str, str]],
               lane_id: tuple[str, str] | None, fasta: str, cpus: int, cfg: dict) -> Path:
+    """Выполнить trim или align одной sequencing unit."""
     if lane_id is None:
         raise ValueError(f'{name}: отсутствует lane_id')
     matching = [r for r in rows if (r['run_id'], r['library']) == lane_id]
@@ -163,6 +168,7 @@ def _run_lane(name: str, out: Path, logs: Path, sample: str, rows: list[dict[str
 
 def _run_sample(name: str, out: Path, logs: Path, sample: str,
                 rows: list[dict[str, str]], spec: dict, cpus: int, cfg: dict) -> Path:
+    """Выполнить BAM QC, обработку BAM или вызов вариантов для образца."""
     bam_dir = out / 'bam'
     bam_dir.mkdir(parents=True, exist_ok=True)
     merged = bam_dir / f'{sample}.merged.bam'
@@ -201,6 +207,7 @@ def _run_sample(name: str, out: Path, logs: Path, sample: str,
         result = _run_checked(gvcf, _valid_gvcf, 'haplotypecaller.sh',
                               [spec['fasta'], final, gvcf, cpus, *spec['contigs']],
                               logs, f'hc_{sample}', cfg)
+        # После нескольких sequencing units записываем один gVCF на образец.
         manifest = out / 'gvcf_manifest.tsv'
         tmp = manifest.with_name(manifest.name + '.tmp')
         write_tsv(tmp, ['sample_id', 'gvcf_path'], [(sample, str(result.resolve()))])
